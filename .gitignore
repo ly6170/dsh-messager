@@ -27,3 +27,6 @@ Thumbs.db
 *.tar.gz
 coverage/
 .vitest/
+
+# 本地协同目录
+.agent-teams/

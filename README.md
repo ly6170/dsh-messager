@@ -164,6 +164,28 @@ dsh-messager/
 └── tests/                # vitest 单元测试
 ```
 
+## 发行版（npx 安装的 DSH）：启用设置页卡片
+
+DSH 的 Web 设置接口只放行**硬编码白名单**（`WEB_SETTINGS_NAMESPACES`，在
+`dsh-host-apiproxy` 包内），第三方插件的命名空间默认被拒（`settings-not-exposed`），
+因此设置 → 插件页会显示 dsh-messager 卡片但提示「命名空间不可用」。本仓库提供
+**一次性补丁脚本** `patch-host.mjs`，把 `"messager"` 加进已安装包的白名单：
+
+```sh
+# 在插件被安装到的 profile 内执行（node_modules/dsh-messager 为插件安装位置）
+cd "$DSH_HOME/profiles/web"   # 或你的 profile 目录
+node node_modules/dsh-messager/patch-host.mjs   # 补丁（幂等，已打则跳过）
+node node_modules/dsh-messager/patch-host.mjs --check    # 只查看状态
+node node_modules/dsh-messager/patch-host.mjs --revert   # 撤销补丁
+# 然后重启 dsh web（lib/index.js 是启动时加载的）
+```
+
+> - 只在**发行版 / npx 安装**的 DSH 需要；**源码运行**（`pnpm dsh`）不需要 ——
+>   白名单已在源码中（`packages/host/apiproxy/src/api-proxy.ts`）。
+> - **DSH 升级后需重跑一次**（升级会覆盖 `lib/index.js`）。脚本对旧版/新版均兼容
+>   （自动处理白名单末项是否带尾逗号），找不到数组时会给出手工修改指引。
+> - 不打补丁也能用：直接编辑 `~/.dsh/settings.yaml` 的 `messager:` 段即可，功能不受影响。
+
 ## 开发与测试
 
 ```sh

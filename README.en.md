@@ -164,6 +164,26 @@ dsh-messager/
 └── tests/                # vitest unit tests
 ```
 
+## Enabling the web settings card on release (npx) DSH
+
+DSH's web settings API only exposes a **hard-coded allowlist** (`WEB_SETTINGS_NAMESPACES`, inside the `dsh-host-apiproxy` package); third-party plugin namespaces are refused with `settings-not-exposed`. So the dsh-messager card under Settings → Plugins shows "namespace not exposed". This repo ships a **one-time patch script** `patch-host.mjs` that adds `"messager"` to the allowlist of the installed package:
+
+```sh
+# Run from the profile the plugin is installed into (node_modules/dsh-messager is where the plugin is installed)
+cd "$DSH_HOME/profiles/web"   # or your profile directory
+node node_modules/dsh-messager/patch-host.mjs   # patch (idempotent; no-op if already patched)
+node node_modules/dsh-messager/patch-host.mjs --check    # report status only
+node node_modules/dsh-messager/patch-host.mjs --revert   # undo the patch
+# then restart dsh web (lib/index.js is loaded at startup)
+```
+
+> - Only needed on **release / npx** DSH; **running from source** (`pnpm dsh`) does NOT need it —
+>   the allowlist is already present in the source (`packages/host/apiproxy/src/api-proxy.ts`).
+> - **Re-run it after every DSH upgrade** (upgrades overwrite `lib/index.js`). The script is
+>   version-agnostic (handles whether the last allowlist entry has a trailing comma); if the array
+>   cannot be found it prints manual-editing guidance.
+> - The patch is optional: you can also configure via `~/.dsh/settings.yaml`'s `messager:` section — functionality is unaffected.
+
 ## Development & Testing
 
 ```sh

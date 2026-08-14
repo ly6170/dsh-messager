@@ -21,6 +21,7 @@
     "lib",
     "assets",
     "cordis.patch.yml",
+    "patch-host.mjs",
     "README.md"
   ],
   "scripts": {
