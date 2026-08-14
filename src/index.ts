@@ -11,7 +11,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
-import type {} from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 import { resolveConfig, type Config } from './config.js'
 import { interactionSignalOf, errorMessageOf, turnEndReasonOf } from './signals.js'
@@ -40,6 +40,39 @@ function buildChannels(config: Config): NotifyChannel[] {
   return channels
 }
 
+/**
+ * 从会话事件日志取最近的非空标题。会话日志包含持久化重放的历史事件
+ * （含 session/title），因此进程重启后恢复的会话也能取到标题 ——
+ * 实时 session/event 只在事件发生时投递一次，不会重放历史。
+ */
+function sessionTitleOf(session: Session): string | undefined {
+  const events = session.events
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index]
+    if (event === undefined) continue
+    if (event.type !== 'session/title') continue
+    if (event.data.title === '') continue
+    return event.data.title
+  }
+  return undefined
+}
+
+/** 已扫描过日志且确认无标题的会话（避免对无标题会话反复全量扫描大日志）。 */
+const noTitleSessions = new Set<string>()
+
+/** 标题兜底：实时 map 缺失时从会话日志补取一次；新标题事件到达时解除负缓存。 */
+function ensureSessionTitle(dispatcher: NotificationDispatcher, session: Session): void {
+  const sessionId = session.id
+  if (dispatcher.hasTitle(sessionId)) return
+  if (noTitleSessions.has(sessionId)) return
+  const title = sessionTitleOf(session)
+  if (title === undefined) {
+    noTitleSessions.add(sessionId)
+    return
+  }
+  dispatcher.noteSessionTitle(sessionId, title)
+}
+
 export function apply(ctx: Context, config: Config) {
   // 配置层：settings 服务可能晚于本插件挂载，必须用 ctx.inject 动态接入；
   // 服务未就绪（如 headless profile）期间回退 Loader config 默认值。
@@ -66,11 +99,13 @@ export function apply(ctx: Context, config: Config) {
   // 会话事件：会话标题、交互信号（审批/提问）、turn/end 结束原因。
   ctx.on('session/event', (session, event) => {
     if (event.type === 'session/title') {
+      noTitleSessions.delete(session.id) // 新标题到达：解除无标题负缓存
       dispatcher.noteSessionTitle(session.id, event.data.title)
       return
     }
     const interaction = interactionSignalOf(session.id, event)
     if (interaction !== undefined) {
+      ensureSessionTitle(dispatcher, session)
       dispatcher.onSignal(interaction)
       return
     }
@@ -86,11 +121,13 @@ export function apply(ctx: Context, config: Config) {
     running.set(agent.id, isRunning)
     if (previous !== true || isRunning) return
     if (agent.session.header.parentSession !== undefined) return
+    ensureSessionTitle(dispatcher, agent.session)
     dispatcher.onSignal({ kind: 'completed', sessionId: agent.id, seq: Date.now() })
   })
 
   // 错误：步骤/回合失败。
   ctx.on('agent/error', ({ agent, turn, step, error }) => {
+    ensureSessionTitle(dispatcher, agent.session)
     dispatcher.onSignal({
       kind: 'error',
       sessionId: agent.id,

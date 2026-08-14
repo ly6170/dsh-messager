@@ -76,6 +76,11 @@ export class NotificationDispatcher {
     this.titles.set(sessionId, title)
   }
 
+  /** 是否已记录该会话的标题（缺失时插件可从会话事件日志兜底补取）。 */
+  hasTitle(sessionId: string): boolean {
+    return this.titles.has(sessionId)
+  }
+
   /** 记录 turn/end 结束原因，并合并到正在防抖的完成信号上。 */
   noteTurnEnd(sessionId: string, reason: TurnEndReason): void {
     this.lastTurnEnd.set(sessionId, reason)

@@ -1,20 +1,60 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { apply } from '../src/index.ts'
+import { resolveConfig } from '../src/config.ts'
 
 /** 记录注册调用的假 settings 服务。 */
-function fakeSettingsService() {
+function fakeSettingsService(config: unknown = {}) {
   const registrations: Array<{ ns: string; hasSchema: boolean; base: unknown }> = []
   const service = {
     register(ns: string, schema: unknown, options: { base?: unknown } = {}) {
       registrations.push({ ns, hasSchema: typeof schema === 'function', base: options.base })
       return {
-        get: () => ({}),
+        get: () => config,
         watch: () => () => undefined,
       }
     },
   }
   return { service, registrations }
+}
+
+/** 构造一个只含历史标题事件的假会话（模拟进程重启后恢复的会话：历史事件不重放）。 */
+function fakeSessionWithHistoricalTitle(id: string, title: string) {
+  return {
+    id,
+    header: { parentSession: undefined },
+    events: [
+      { type: 'session/title', seq: 1, time: 1, data: { title, messageSeqs: [], source: { kind: 'fallback' } } },
+    ],
+  }
+}
+
+/** 装配插件 + 假 settings + 捕获飞书 webhook 请求。 */
+async function mountFeishuHarness() {
+  const config = resolveConfig({
+    system: { enabled: false },
+    browser: { enabled: false },
+    feishu: { enabled: true, webhookUrl: 'https://feishu.example/hook', verbosity: 'detailed' },
+    dedup: { completedDebounceMs: 10 },
+  })
+  const ctx = new Context()
+  const { service } = fakeSettingsService(config)
+  ctx.provide('settings', service)
+  apply(ctx, {} as never)
+  // 等 settings inject 子 fiber 完成注册与通道重建（dispatcher 此时才持有飞书通道）
+  await new Promise<void>((resolve) => setTimeout(resolve, 50))
+  const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ code: 0, msg: 'ok' }) }))
+  vi.stubGlobal('fetch', fetchMock)
+  return { ctx, fetchMock }
+}
+
+/** 从捕获的飞书请求里取出卡片正文 div。 */
+function capturedCardBody(fetchMock: ReturnType<typeof vi.fn>): string | undefined {
+  const call = fetchMock.mock.calls[0]
+  const body = JSON.parse((call?.[1] as { body?: string })?.body ?? '{}') as {
+    card?: { elements?: Array<{ tag?: string; text?: { content?: string } }> }
+  }
+  return body.card?.elements?.find(element => element.tag === 'div')?.text?.content
 }
 
 describe('host apply 的 settings 接线', () => {
@@ -35,5 +75,39 @@ describe('host apply 的 settings 接线', () => {
     const ctx = new Context()
     expect(() => apply(ctx, {} as never)).not.toThrow()
     await new Promise<void>((resolve) => setTimeout(resolve, 50))
+  })
+})
+
+describe('host apply 的会话标题兜底', () => {
+  it('恢复的旧会话（历史标题不重放）：完成通知仍带会话标题', async () => {
+    const { ctx, fetchMock } = await mountFeishuHarness()
+    const agent = {
+      id: 'session-historical',
+      session: fakeSessionWithHistoricalTitle('session-historical', '历史标题'),
+    }
+    ctx.emit('agent/status', { agent, status: 'running' } as never)
+    ctx.emit('agent/status', { agent, status: 'idle' } as never)
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(capturedCardBody(fetchMock)).toContain('会话：历史标题')
+    vi.unstubAllGlobals()
+  })
+
+  it('实时标题事件到达后：完成通知带最新标题', async () => {
+    const { ctx, fetchMock } = await mountFeishuHarness()
+    const session = fakeSessionWithHistoricalTitle('session-live', '旧标题')
+    const agent = { id: 'session-live', session }
+    // 实时标题事件（如重命名）：更新内存 map 并解除无标题负缓存
+    ctx.emit('session/event', session, {
+      type: 'session/title', seq: 2, time: 2,
+      data: { title: '新标题', messageSeqs: [], source: { kind: 'user' } },
+    } as never)
+    ctx.emit('agent/status', { agent, status: 'running' } as never)
+    ctx.emit('agent/status', { agent, status: 'idle' } as never)
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(capturedCardBody(fetchMock)).toContain('会话：新标题')
+    expect(capturedCardBody(fetchMock)).not.toContain('旧标题')
+    vi.unstubAllGlobals()
   })
 })
