@@ -1,0 +1,29 @@
+# 依赖与构建产物
+node_modules/
+lib/
+.pnpm-store/
+
+# 类型检查缓存
+*.tsbuildinfo
+
+# 日志
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# 环境变量（可能含密钥/令牌）
+.env
+.env.*
+!.env.example
+
+# 编辑器 / 系统文件
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 打包 / 覆盖率
+*.tgz
+*.tar.gz
+coverage/
+.vitest/

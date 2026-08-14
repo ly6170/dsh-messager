@@ -1,0 +1,11 @@
+# 分发包（bundle）的配置层：用户通过 `dsh plugin add ./dsh-messager` 安装后，
+# 本层把插件行插入运行组合。name 使用包名解析（需要先 `pnpm build` 产出 lib/）。
+# host 端由此行加载；client 端由 clientModules 扫描本包的 dsh.client 声明自动编入 Web bundle。
+- insert:
+    - id: messager
+      name: dsh-messager
+      # 配置示例（可省略，schema 有默认值；设置页可覆盖用户层）：
+      # config:
+      #   feishu:
+      #     enabled: true
+      #     webhookUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/<token>'
