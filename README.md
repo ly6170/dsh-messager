@@ -53,7 +53,7 @@ English version: <a href="README.en.md">README.en.md</a>
 ### 从源码安装（推荐给开发者）
 
 ```sh
-git clone https://github.com/<你的用户名>/dsh-messager.git
+git clone https://github.com/ly6170/dsh-messager.git
 cd dsh-messager
 
 pnpm install
@@ -68,7 +68,7 @@ dsh web    # 或 dsh --profile web
 ### 从 git 直接安装（需构建授权）
 
 ```sh
-dsh plugin --profile web add github:<你的用户名>/dsh-messager
+dsh plugin --profile web add github:ly6170/dsh-messager
 ```
 
 > pnpm ≥ 10 默认拒绝运行 git 依赖的 `prepare` 构建脚本，第一次 `add` 会提示把确切的包键加入该 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds`，然后重新 `add`。

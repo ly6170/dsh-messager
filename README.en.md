@@ -53,7 +53,7 @@ Trigger semantics align exactly with the Web UI status dots: **orange dot = need
 ### Install from source (recommended for developers)
 
 ```sh
-git clone https://github.com/<your-username>/dsh-messager.git
+git clone https://github.com/ly6170/dsh-messager.git
 cd dsh-messager
 
 pnpm install
@@ -68,7 +68,7 @@ dsh web    # or dsh --profile web
 ### Install directly from git (requires build approval)
 
 ```sh
-dsh plugin --profile web add github:<your-username>/dsh-messager
+dsh plugin --profile web add github:ly6170/dsh-messager
 ```
 
 > pnpm ≥ 10 refuses to run the `prepare` build scripts of git dependencies by default. On the first `add` you'll be prompted to add the exact package key to the `allowBuilds` in that profile's `pnpm-workspace.yaml`, then re-run `add`.
