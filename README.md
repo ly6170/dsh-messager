@@ -48,7 +48,16 @@ English version: <a href="README.en.md">README.en.md</a>
 | --- | --- |
 | Node.js | `>= 20` |
 | pnpm | `>= 10`（推荐） |
-| DSH | `dsh` CLI 可用 |
+| DSH | `npx` 可联网；或已装好 `dsh` CLI（发行版 `dsh` / 源码运行 `pnpm dsh`） |
+
+> 下方命令用 `npx -p @deepseek-ai/dsh` 现拉安装 DSH 发行版 CLI 来执行，**无需预先安装 `dsh`**；若你已装好 CLI，把 `npx -p @deepseek-ai/dsh dsh` 换成 `dsh`（源码运行 DSH 时换成 `pnpm dsh`）即可，行为一致。
+
+### 一条命令直接安装（推荐）
+
+```sh
+npx -p @deepseek-ai/dsh dsh plugin --profile web add github:ly6170/dsh-messager
+npx -p @deepseek-ai/dsh dsh web
+```
 
 ### 从源码安装（推荐给开发者）
 
@@ -59,8 +68,8 @@ cd dsh-messager
 pnpm install
 pnpm build
 
-dsh plugin --profile web add ./
-dsh web    # 或 dsh --profile web
+npx -p @deepseek-ai/dsh dsh plugin --profile web add ./
+npx -p @deepseek-ai/dsh dsh web    # 或 dsh --profile web
 ```
 
 > 完整的分步安装指南见 [doc/用户安装指南.md](doc/用户安装指南.md)，覆盖**源码方式**与 **pnpm 方式**（本地 checkout / tarball / git / npm）两类安装。
@@ -68,10 +77,17 @@ dsh web    # 或 dsh --profile web
 ### 从 git 直接安装（需构建授权）
 
 ```sh
-dsh plugin --profile web add github:ly6170/dsh-messager
+npx -p @deepseek-ai/dsh dsh plugin --profile web add github:ly6170/dsh-messager
 ```
 
-> pnpm ≥ 10 默认拒绝运行 git 依赖的 `prepare` 构建脚本，第一次 `add` 会提示把确切的包键加入该 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds`，然后重新 `add`。
+> ⚠️ 从 git 安装拉取的是**源码而非构建产物**，需要跑 `prepare` 构建脚本。pnpm ≥ 10 默认**拒绝**运行 git 依赖的构建脚本，所以第一次 `add` 会提示你把确切的包键加入该 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds`，然后**重新执行 `add`**：
+>
+> ```yaml
+> allowBuilds:
+>   dsh-messager: true
+> ```
+>
+> 锁到某个 commit 更稳妥：`... add github:ly6170/dsh-messager#<commit-sha>`。
 
 ### 验证
 

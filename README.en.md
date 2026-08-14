@@ -48,7 +48,16 @@ Trigger semantics align exactly with the Web UI status dots: **orange dot = need
 | --- | --- |
 | Node.js | `>= 20` |
 | pnpm | `>= 10` (recommended) |
-| DSH | `dsh` CLI available |
+| DSH | `npx` reachable online; or an installed `dsh` CLI (release `dsh` / source runs `pnpm dsh`) |
+
+> The commands below pull the DSH release CLI on the fly via `npx -p @deepseek-ai/dsh`, so **no pre-installed `dsh` is required**. If you already have the CLI, replace `npx -p @deepseek-ai/dsh dsh` with `dsh` (or `pnpm dsh` when running DSH from source) — behavior is identical.
+
+### One-command install (recommended)
+
+```sh
+npx -p @deepseek-ai/dsh dsh plugin --profile web add github:ly6170/dsh-messager
+npx -p @deepseek-ai/dsh dsh web
+```
 
 ### Install from source (recommended for developers)
 
@@ -59,8 +68,8 @@ cd dsh-messager
 pnpm install
 pnpm build
 
-dsh plugin --profile web add ./
-dsh web    # or dsh --profile web
+npx -p @deepseek-ai/dsh dsh plugin --profile web add ./
+npx -p @deepseek-ai/dsh dsh web    # or dsh --profile web
 ```
 
 > A full step-by-step installation guide is in [doc/用户安装指南.md](doc/用户安装指南.md) (Chinese), covering both the **source** method and the **pnpm** method (local checkout / tarball / git / npm).
@@ -68,10 +77,17 @@ dsh web    # or dsh --profile web
 ### Install directly from git (requires build approval)
 
 ```sh
-dsh plugin --profile web add github:ly6170/dsh-messager
+npx -p @deepseek-ai/dsh dsh plugin --profile web add github:ly6170/dsh-messager
 ```
 
-> pnpm ≥ 10 refuses to run the `prepare` build scripts of git dependencies by default. On the first `add` you'll be prompted to add the exact package key to the `allowBuilds` in that profile's `pnpm-workspace.yaml`, then re-run `add`.
+> ⚠️ Installing from git pulls **source, not built artifacts**, so the `prepare` build scripts must run. pnpm ≥ 10 refuses to run them by default, so the first `add` will fail and prompt you to add the exact package key to the `allowBuilds` in that profile's `pnpm-workspace.yaml`, then re-run `add`:
+>
+> ```yaml
+> allowBuilds:
+>   dsh-messager: true
+> ```
+>
+> Locking to a specific commit is safer: `... add github:ly6170/dsh-messager#<commit-sha>`.
 
 ### Verify
 
