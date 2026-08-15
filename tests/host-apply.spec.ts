@@ -110,4 +110,40 @@ describe('host apply 的会话标题兜底', () => {
     expect(capturedCardBody(fetchMock)).not.toContain('旧标题')
     vi.unstubAllGlobals()
   })
+
+  it('分叉会话（header.parentSession 指向源会话、origin 为空）：完成通知正常触发', async () => {
+    const { ctx, fetchMock } = await mountFeishuHarness()
+    // sessions.fork 产生的会话：parentSession = 源会话 id，但 origin 为空（顶层会话）
+    const session = {
+      id: 'session-forked',
+      header: { parentSession: 'session-source' },
+      events: [],
+    }
+    const agent = { id: 'session-forked', session }
+    ctx.emit('agent/status', { agent, status: 'running' } as never)
+    ctx.emit('agent/status', { agent, status: 'idle' } as never)
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    // detailed 正文至少带「打开」行；无标题事件故无「会话」行（断言不抛错即可，重点在触达）
+    expect(capturedCardBody(fetchMock)).toContain('打开：')
+    expect(capturedCardBody(fetchMock)).not.toContain('会话：')
+    vi.unstubAllGlobals()
+  })
+
+  it('子代理会话（origin=subagent）：完成通知仍被排除', async () => {
+    const { ctx, fetchMock } = await mountFeishuHarness()
+    const session = {
+      id: 'session-subagent',
+      header: { parentSession: 'session-parent', origin: 'subagent' },
+      events: [],
+    }
+    const agent = { id: 'session-subagent', session }
+    ctx.emit('agent/status', { agent, status: 'running' } as never)
+    ctx.emit('agent/status', { agent, status: 'idle' } as never)
+
+    // 防抖 10ms；等 100ms 确认没有投递
+    await new Promise<void>((resolve) => setTimeout(resolve, 100))
+    expect(fetchMock).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
 })

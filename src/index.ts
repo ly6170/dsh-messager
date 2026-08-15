@@ -114,13 +114,16 @@ export function apply(ctx: Context, config: Config) {
   })
 
   // 运行状态：running → idle 边界触发“任务完成”；仅根会话（排除子代理噪音）。
+  // 注意：子代理判别必须用 origin === 'subagent'，不能用 parentSession ——
+  // 分叉会话（sessions.fork）的 header 也会携带 parentSession（指向源会话），
+  // 但 origin 为空，仍是顶层会话，任务完成后应正常通知。
   const running = new Map<string, boolean>()
   ctx.on('agent/status', ({ agent, status }) => {
     const isRunning = status === 'running'
     const previous = running.get(agent.id)
     running.set(agent.id, isRunning)
     if (previous !== true || isRunning) return
-    if (agent.session.header.parentSession !== undefined) return
+    if (agent.session.header.origin === 'subagent') return
     ensureSessionTitle(dispatcher, agent.session)
     dispatcher.onSignal({ kind: 'completed', sessionId: agent.id, seq: Date.now() })
   })
