@@ -13,12 +13,14 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import { resolveConfig, type Config } from './config.js'
 import { interactionSignalOf, errorMessageOf, turnEndReasonOf } from './signals.js'
 import { NotificationDispatcher, type NotifyChannel } from './notify.js'
 import { createSystemChannel } from './channels/system.js'
 import { createFeishuChannel } from './channels/feishu.js'
 import { registerMessagerSettings } from './settings.js'
+import { mountConfigRoutes, type SettingsServiceLike } from './config-route.js'
 
 export const name = 'dsh-messager'
 
@@ -94,6 +96,21 @@ export function apply(ctx: Context, config: Config) {
     settingsCtx.effect(() => settings.watch((next) => {
       dispatcher.reconfigure({ config: next, channels: buildChannels(next) })
     }), 'dsh-messager: settings watch')
+  })
+
+  // 配置读写路由（webServer 通道）：浏览器端经此读写 messager 命名空间，
+  // 不受 Web 设置白名单门控（dsh-market 同款「正门」）。仅 Web 环境挂载；
+  // headless profile 无 webServer 服务时本 inject 不执行，不影响通知功能。
+  ctx.inject(['webServer'], (webCtx) => {
+    webCtx.inject(['settings'], (fullCtx) => {
+      const settingsService = fullCtx.get('settings')
+      if (settingsService === undefined) return
+      const disposeRoutes = mountConfigRoutes(
+        fullCtx.webServer,
+        settingsService as unknown as SettingsServiceLike,
+      )
+      fullCtx.effect(() => disposeRoutes, 'dsh-messager: config routes')
+    })
   })
 
   // 会话事件：会话标题、交互信号（审批/提问）、turn/end 结束原因。

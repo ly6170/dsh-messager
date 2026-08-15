@@ -92,6 +92,8 @@ export interface MessagerCardFace {
   reset(group: string, field: string): void
   save(): void
   discard(): void
+  /** 翻译函数（键 → 当前语言文案）；未接入 locale 时原样返回键。 */
+  t(key: string): string
 }
 
 /** 一条嵌套路径写操作（与 settings.mutate 的 SettingsPathOpView 同构）。 */
@@ -212,6 +214,8 @@ export class MessagerCardController {
         this.failed = false
         this.invalidate()
       },
+      // 默认透传键（组件未接入 locale 时 fail loud）；client/index.ts 组装真实 t
+      t: (key: string) => key,
     }
   }
 
@@ -398,43 +402,47 @@ export function deepEqualJson(a: unknown, b: unknown): boolean {
   return keys.every(key => key in right && deepEqualJson(left[key], right[key]))
 }
 
-/** 设置页卡片展示的字段清单（中文标签）。 */
+/**
+ * 设置分区展示的字段清单。
+ * label/hint 为**翻译键**（见 src/client/locales.ts），渲染层经 t() 取当前语言；
+ * 键名与字典一致，缺键时 t() 原样返回键名（fail loud）。
+ */
 export const CARD_FIELDS: readonly CardFieldSpec[] = [
   // 触发时机
-  { group: 'triggers', field: 'interaction', kind: 'toggle', label: '需要交互时通知' },
-  { group: 'triggers', field: 'completed', kind: 'toggle', label: '任务完成时通知' },
-  { group: 'triggers', field: 'error', kind: 'toggle', label: '任务出错时通知' },
+  { group: 'triggers', field: 'interaction', kind: 'toggle', label: 'field.triggers.interaction' },
+  { group: 'triggers', field: 'completed', kind: 'toggle', label: 'field.triggers.completed' },
+  { group: 'triggers', field: 'error', kind: 'toggle', label: 'field.triggers.error' },
   // 系统通知
-  { group: 'system', field: 'enabled', kind: 'toggle', label: '启用系统通知' },
-  { group: 'system', field: 'verbosity', kind: 'select', label: '内容繁复度', options: ['minimal', 'normal', 'detailed'] },
-  { group: 'system', field: 'icon', kind: 'text', label: '图标路径', hint: 'node-notifier 需要文件绝对路径' },
+  { group: 'system', field: 'enabled', kind: 'toggle', label: 'field.system.enabled' },
+  { group: 'system', field: 'verbosity', kind: 'select', label: 'field.system.verbosity', options: ['minimal', 'normal', 'detailed'] },
+  { group: 'system', field: 'icon', kind: 'text', label: 'field.system.icon', hint: 'hint.system.icon' },
   // 浏览器通知
-  { group: 'browser', field: 'enabled', kind: 'toggle', label: '启用浏览器通知' },
-  { group: 'browser', field: 'onlyWhenHidden', kind: 'toggle', label: '仅页面隐藏时通知' },
-  { group: 'browser', field: 'verbosity', kind: 'select', label: '内容繁复度', options: ['minimal', 'normal', 'detailed'] },
-  { group: 'browser', field: 'icon', kind: 'text', label: '图标 URL' },
+  { group: 'browser', field: 'enabled', kind: 'toggle', label: 'field.browser.enabled' },
+  { group: 'browser', field: 'onlyWhenHidden', kind: 'toggle', label: 'field.browser.onlyWhenHidden' },
+  { group: 'browser', field: 'verbosity', kind: 'select', label: 'field.browser.verbosity', options: ['minimal', 'normal', 'detailed'] },
+  { group: 'browser', field: 'icon', kind: 'text', label: 'field.browser.icon' },
   // 第三方推送（飞书机器人 webhook）：enabled 为门控开关，关闭时不显示/不保存子配置
-  { group: 'feishu', field: 'enabled', kind: 'toggle', label: '飞书机器人（webhook）' },
+  { group: 'feishu', field: 'enabled', kind: 'toggle', label: 'field.feishu.enabled' },
   {
-    group: 'feishu', field: 'webhookUrl', kind: 'text', label: 'Webhook 地址',
+    group: 'feishu', field: 'webhookUrl', kind: 'text', label: 'field.feishu.webhookUrl',
     hiddenUnless: { group: 'feishu', field: 'enabled' },
   },
   {
-    group: 'feishu', field: 'secret', kind: 'text', label: '签名密钥',
-    hint: '留空不修改；重置可清除已存密钥', secret: true,
+    group: 'feishu', field: 'secret', kind: 'text', label: 'field.feishu.secret',
+    hint: 'hint.feishu.secret', secret: true,
     hiddenUnless: { group: 'feishu', field: 'enabled' },
   },
   {
-    group: 'feishu', field: 'timeoutMs', kind: 'number', label: '请求超时（毫秒）',
+    group: 'feishu', field: 'timeoutMs', kind: 'number', label: 'field.feishu.timeoutMs',
     hiddenUnless: { group: 'feishu', field: 'enabled' },
   },
   {
-    group: 'feishu', field: 'verbosity', kind: 'select', label: '内容繁复度',
+    group: 'feishu', field: 'verbosity', kind: 'select', label: 'field.feishu.verbosity',
     options: ['minimal', 'normal', 'detailed'],
     hiddenUnless: { group: 'feishu', field: 'enabled' },
   },
   // 消息内容
-  { group: 'message', field: 'titlePrefix', kind: 'text', label: '标题前缀', hint: '如 [DSH]' },
-  { group: 'message', field: 'includeSessionTitle', kind: 'toggle', label: '正文包含会话标题' },
-  { group: 'message', field: 'guiUrl', kind: 'text', label: '打开链接地址' },
+  { group: 'message', field: 'titlePrefix', kind: 'text', label: 'field.message.titlePrefix', hint: 'hint.message.titlePrefix' },
+  { group: 'message', field: 'includeSessionTitle', kind: 'toggle', label: 'field.message.includeSessionTitle' },
+  { group: 'message', field: 'guiUrl', kind: 'text', label: 'field.message.guiUrl' },
 ]

@@ -4,8 +4,9 @@
  * 功能：
  * 1. 浏览器通知：基于客户端会话摘要（ctx.sessions.list）投递，语义与 Web UI
  *    状态圆点一致（橙点=需要交互、绿点=任务完成）。
- * 2. 设置页卡片：在 DSH 设置 → Plugins 标签页注册 dsh-messager 配置卡片，
- *    经 ctx.settingsScope 读写 `messager` 命名空间（用户层，实时生效）。
+ * 2. 设置页分区「通知&信使」：注册到 settings.section（Agent预设下方，动态
+ *    order），经 host 配置路由（/dsh-messager/config，webServer 通道）读写
+ *    `messager` 命名空间 —— 不受 Web 设置白名单门控，发行版同样可用。
  *
  * 行为要点：
  * - 配置与 host 端同源（settings 命名空间 `messager`，document-updated 失效重拉）；
@@ -15,25 +16,28 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-// 类型合并（ctx.remote/slots 等声明）+ SettingsPathOpView 类型
-import type { SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
-// 类型合并：ctx.settingsScope（ui-settings）与 settings.plugin.item 槽位（ui-settings-plugins）
+// 类型合并：ctx.locale（dsh-client-locale）与 settings.section 槽位声明（ui-settings）
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type { Verbosity } from '../config.js'
 import type { Config } from '../config.js'
 import { ClientConfig, type ClientConfigHandle } from './config.js'
 import { diffSessionSummaries, type ClientNotice } from './diff.js'
-import { CARD_FIELDS, MessagerCardController, type ScopeLike } from './card-controller.js'
-import { MessagerCard } from './messager-card.js'
+import { CARD_FIELDS, MessagerCardController } from './card-controller.js'
+import { createFetchScope, type ConfigFetcher } from './fetch-scope.js'
+import { MessagerSection } from './section.jsx'
+import { zh, en } from './locales.js'
+import { CONFIG_PATH, type ConfigView, type ConfigWriteBody } from '../config-shared.js'
 
 export const name = 'dsh-messager'
 
-/** 依赖的客户端服务：会话列表、连接（api）、远程事件、设置作用域、槽位。 */
-export const inject = ['sessions', 'connection', 'remote', 'settingsScope', 'slots']
+/** locale 字典命名空间（与 section 的 locale 声明一致）。 */
+export const LOCALE_NS = 'dsh-messager'
+
+/** 依赖的客户端服务：会话列表、远程事件（document-updated）、槽位、locale。 */
+export const inject = ['sessions', 'remote', 'slots', 'locale']
 
 /** localStorage 跨标签页去重键前缀。 */
 const STORAGE_PREFIX = 'dsh-messager:notified:'
@@ -126,14 +130,37 @@ class BrowserNotifier {
 }
 
 export function apply(ctx: Context): void {
-  // connection 服务没有公开的类型合并声明，按 ui-settings 同款模式经 ctx.get 断言
-  const connection = ctx.get('connection') as ConnectionHandle | undefined
-  const config = new ClientConfig(connection?.api)
+  const config = new ClientConfig()
   void config.refresh()
 
-  // 设置变更（host/设置页）→ 重拉有效配置
+  // 配置路由访问器（同源 fetch；路由由 host 半挂载，见 src/config-route.ts）
+  const fetcher: ConfigFetcher = {
+    get: async (): Promise<ConfigView> => {
+      const response = await fetch(CONFIG_PATH, { headers: { accept: 'application/json' } })
+      if (!response.ok) throw new Error(`config route responded ${response.status}`)
+      return (await response.json()) as ConfigView
+    },
+    write: async (body: ConfigWriteBody) => {
+      try {
+        const response = await fetch(CONFIG_PATH, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        const result = (await response.json()) as { ok: boolean; error?: string }
+        return { ok: response.ok && result.ok === true, error: result.error }
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  }
+  const fetchScope = createFetchScope(fetcher)
+  void fetchScope.refresh()
+
+  // 设置变更（host/设置页/本分区保存）→ 重拉有效配置与表单视图
   const offRemote = ctx.remote.$on('settings/document-updated', () => {
     void config.refresh()
+    void fetchScope.refresh()
   })
   ctx.effect(() => () => offRemote?.(), 'dsh-messager: settings invalidation')
 
@@ -149,52 +176,32 @@ export function apply(ctx: Context): void {
   })
   ctx.effect(() => () => offList(), 'dsh-messager: sessions subscription')
 
-  // 设置页卡片：绑定 messager 命名空间作用域并注册到 Plugins 标签页。
-  // scope 的 set/unset 只支持单层路径，且整组 set 是替换语义（会抹掉 write-only
-  // 密钥、并在脱敏回显下误报失败）—— 因此保存走直连 api 的逐字段嵌套路径写，
-  // scope 仍负责读取/订阅/修订号；写成功后 seam 广播 document-updated 使 scope
-  // 自动重拉（失败路径无事件，这里显式触发一次 load 兜底）。
-  const scope = ctx.settingsScope.bind<Record<string, unknown>>({
-    namespace: 'messager',
-  })
-  const settingsApi = connection?.api
-  const adapter: ScopeLike = {
-    getSnapshot: () => scope.getSnapshot(),
-    subscribe: (listener) => scope.subscribe(listener),
-    set: (field, value) => scope.set(field, value),
-    unset: (field) => scope.unset(field),
-    async writeOps(ops) {
-      // memory 模式（非 loopback 访问）或 settings 缺失：与 scope 行为一致，静默成功
-      if (settingsApi === undefined || connection?.isLoopback !== true) return true
-      const revision = scope.getSnapshot().revision
-      let ok = false
-      try {
-        const response = await settingsApi.settings.mutate({
-          ns: 'messager',
-          ops: ops as unknown as SettingsPathOpView[],
-          ...(revision === undefined ? {} : { expectedRevision: revision }),
-        })
-        ok = response.result.ok
-      } catch {
-        ok = false
-      }
-      // 兜底重拉：失败（冲突/拒绝）时无 document-updated 事件，scope 需要收敛到最新视图
-      try {
-        void (scope as unknown as { load?: () => Promise<void> }).load?.()
-      } catch {
-        // 旧实现无 load：成功路径依赖事件刷新
-      }
-      return ok
-    },
-  }
-  const controller = new MessagerCardController(adapter, CARD_FIELDS)
-  ctx.slots.inject('settings.plugin.item', function* () {
+  // 设置页分区「通知&信使」：注册到 settings.section。
+  // 数据经 webServer 配置路由读写（不受白名单门控），控制器与表单复用
+  // MessagerCardController / MessagerSettingsForm；文案走 locale 字典。
+  const controller = new MessagerCardController(fetchScope.scope, CARD_FIELDS)
+  ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh, en }), 'dsh-messager: locale dictionaries')
+  const t = ctx.locale.bind(LOCALE_NS)
+  ctx.slots.inject('settings.section', function* () {
+    // 动态 order：紧随 agent-presets（Agent预设）；不存在则排在当时已注册
+    // 分区之后；全空时用大数兜底 —— 语义即「自然向后排序」，不写死数值。
+    const existing = ctx.slots.entries('settings.section')
+    const agentPresets = existing.find(entry => entry.options.id === 'agent-presets')
+    const maxOrder = existing.reduce((max, entry) => Math.max(max, entry.options.order ?? 0), 0)
+    const order = agentPresets !== undefined
+      ? (agentPresets.options.order ?? 0) + 1
+      : existing.length > 0
+        ? maxOrder + 1
+        : 1000
+    const face = controller.inject()
     yield ctx.slots.register({
-      name: 'settings.plugin.item',
+      name: 'settings.section',
       id: 'dsh-messager',
-      order: 100,
-      inject: () => controller.inject(),
-    }, MessagerCard)
+      order,
+      label: () => t('nav'),
+      locale: LOCALE_NS,
+      inject: () => ({ ...face, t }),
+    }, MessagerSection)
   })
 
   // 权限：default 状态时请求一次（部分浏览器需用户手势，README 有说明）

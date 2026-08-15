@@ -1,65 +1,70 @@
 # dsh-messager
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/dsh-messager)](https://www.npmjs.com/package/dsh-messager)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-blue.svg)](package.json)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#贡献)
 
-> **DeepSeek Harness（DSH）任务状态通知插件。** 当会话需要交互、任务完成或任务出错时，通过**系统通知**（OS toast）、**浏览器通知**与**飞书机器人（webhook）**推送提醒——不再依赖盯着会话列表的圆点。
+> **DeepSeek Harness（DSH）任务状态通知插件** / *Task-status notification plugin for DeepSeek Harness (DSH)*
+>
+> 会话需要交互、任务完成、任务出错时，通过**系统通知**（OS toast）、**浏览器通知**、**飞书机器人（webhook）**推送提醒——不再依赖盯着会话列表的圆点。
+> *Get notified via system notifications, browser notifications, and a Feishu (Lark) bot whenever a session needs attention, a task completes, or a task errors.*
 
-<details>
-<summary>English readme</summary>
-<p>
-English version: <a href="README.en.md">README.en.md</a>
-</p>
-</details>
+单包双运行端（dual-runtime）结构：**host 端**（Node）负责系统通知与飞书 webhook，**client 端**（浏览器）负责 Web Notification。两者配置同源（命名空间 `messager`），设置页「通知&信使」分区可编辑、实时生效——配置经插件自身的 webServer 路由（`/dsh-messager/config`），**不受 DSH 设置白名单限制，发行版（npx/npm 安装）同样可用**。
 
-## 简介
+---
 
-`dsh-messager` 是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的一个通知插件，属于**单包双运行端（dual-runtime）**结构：
+## 目录 / Table of Contents
 
-- **host 端**（Node，服务端）——负责系统通知与飞书 webhook；
-- **client 端**（浏览器）——负责 Web Notification。
+- [特性 / Features](#特性--features)
+- [安装 / Installation](#安装--installation)
+- [配置 / Configuration](#配置--configuration)
+- [设置分区 / Settings section](#设置分区通知信使--settings-section)
+- [触发信号 / Trigger signals](#触发信号--trigger-signals)
+- [通道扩展 / Channel extension](#通道扩展--channel-extension)
+- [项目结构 / Project structure](#项目结构--project-structure)
+- [开发与测试 / Development](#开发与测试--development)
+- [已知边界 / Known limitations](#已知边界--known-limitations)
+- [许可 / License](#许可--license)
 
-两端配置同源（settings 命名空间 `messager`），Web 设置页可编辑、即时生效。
+---
 
-## 能力一览
+## 特性 / Features
 
-| 需求 | 实现 |
+| 特性 | 说明 |
 | --- | --- |
-| 触发时机 | 需要交互（审批 `approval/asked`、提问/计划待审 `ask_user_question`、客户端 `pendingInteraction`）、任务完成（`agent/status` running→idle 且仅根会话 + `turn/end` 原因）、任务出错（`agent/error`） |
-| 推送路径 | 系统通知（node-notifier toast）、浏览器通知（Notification API）、飞书机器人（webhook：interactive 卡片 + HMAC-SHA256 签名）；`NotifyChannel` 接口可扩展 |
-| 可配置 | 触发开关、各通道启停/verbosity/icon、去重冷却、标题前缀等，见[配置](#配置) |
+| **触发时机** | 需要交互（审批 / 提问 / 计划待审）、任务完成、任务出错，见[触发信号](#触发信号--trigger-signals) |
+| **推送路径** | 系统通知（node-notifier toast）、浏览器通知（Notification API）、飞书机器人（webhook：interactive 卡片 + HMAC-SHA256 签名） |
+| **可配置** | 各通道启停 / 内容繁复度 / icon、触发开关、去重冷却、标题前缀等 |
+| **国际化** | 设置分区菜单与表单随 DSH 语言切换（中文 / English），经 `ctx.locale` 注册 zh/en 字典 |
+| **快捷入口** | 浏览器可经快捷键 `Ctrl+Shift+M` 打开设置面板（不依赖 apiproxy 白名单） |
+| **易接入** | `NotifyChannel` 接口可扩展第三方通道（钉钉 / 企业微信 / Telegram 等） |
 
 触发语义与 Web UI 状态圆点完全对齐：**橙点 = 需要交互**（`pendingInteraction`），**绿点 = 任务完成**（`running→idle` 且非当前会话），**蓝点 = 运行中**（不通知）。
 
-## 特性
+---
 
-- 🟢 三种触发：需要交互 / 任务完成 / 任务出错，可独立开关；
-- 🔔 三条通道：系统通知、浏览器通知、飞书机器人，可独立启停、久内容繁复度（`minimal / normal / detailed`）；
-- ⚙️ 热更新配置：改设置即生效，无需重启 DSH；
-- 🔌 可扩展通道：实现 `NotifyChannel` 接口即可接入钉钉 / 企业微信 / Telegram 等；
-- 🧪 单元测试覆盖信号提取 / 模板渲染 / 调度去重 / 飞书签名 / 配置解析 / client diff。
+## 安装 / Installation
 
-## 快速开始
+> 支持 **npm / npx / git / 源码**四种安装方式。推荐的正式安装只需一步（host + client 都会生效）。
 
-### 前置条件
+### 方式一：npm（推荐）<sup>已发布 npm</sup> / *Via npm (recommended, published)*
 
-| 依赖 | 要求 |
-| --- | --- |
-| Node.js | `>= 20` |
-| pnpm | `>= 10`（推荐） |
-| DSH | `npx` 可联网；或已装好 `dsh` CLI（发行版 `dsh` / 源码运行 `pnpm dsh`） |
-
-> 下方命令用 `npx -p @deepseek-ai/dsh` 现拉安装 DSH 发行版 CLI 来执行，**无需预先安装 `dsh`**；若你已装好 CLI，把 `npx -p @deepseek-ai/dsh dsh` 换成 `dsh`（源码运行 DSH 时换成 `pnpm dsh`）即可，行为一致。
-
-### 一条命令直接安装（推荐）
+已发布到 npm（`dsh-messager`）。DSH 环境已装的用户直接执行：
 
 ```sh
-npx -p @deepseek-ai/dsh dsh plugin --profile web add github:ly6170/dsh-messager
-npx -p @deepseek-ai/dsh dsh web
+dsh plugin --profile web add dsh-messager
+dsh web     # 或 dsh --profile web
 ```
 
-### 从源码安装（推荐给开发者）
+> 尚未预装 `dsh` CLI 时，用 npx 现拉官方发行版执行（无需先全局装 dsh）：
+> ```sh
+> npx -p @deepseek-ai/dsh dsh plugin --profile web add dsh-messager
+> npx -p @deepseek-ai/dsh dsh web
+> ```
+> npm 包已含构建产物 `lib/`，安装无需构建授权。
+> *The npm package ships prebuilt `lib/`, so no build-approval is needed.*
+
+### 方式二：源码（开发 / 修改代码）/ *From source*
 
 ```sh
 git clone https://github.com/ly6170/dsh-messager.git
@@ -69,69 +74,92 @@ pnpm install
 pnpm build
 
 npx -p @deepseek-ai/dsh dsh plugin --profile web add ./
-npx -p @deepseek-ai/dsh dsh web    # 或 dsh --profile web
+npx -p @deepseek-ai/dsh dsh web
 ```
 
-> 完整的分步安装指南见 [doc/用户安装指南.md](doc/用户安装指南.md)，覆盖**源码方式**与 **pnpm 方式**（本地 checkout / tarball / git / npm）两类安装。
+> 使用方分步指南（源码 / pnpm 方式）见 [doc/用户安装指南.md](doc/用户安装指南.md)。
+> *Step-by-step guide: [doc/用户安装指南.md](doc/用户安装指南.md).*
 
-### 从 git 直接安装（需构建授权）
+### 方式三：从 git 直接安装 / *Directly from git (needs build approval)*
 
 ```sh
 npx -p @deepseek-ai/dsh dsh plugin --profile web add github:ly6170/dsh-messager
 ```
 
-> ⚠️ 从 git 安装拉取的是**源码而非构建产物**，需要跑 `prepare` 构建脚本。pnpm ≥ 10 默认**拒绝**运行 git 依赖的构建脚本，所以第一次 `add` 会提示你把确切的包键加入该 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds`，然后**重新执行 `add`**：
->
+> ⚠️ git 安装拉取的是源码，需跑 `prepare` 构建。pnpm ≥ 10 默认拒绝 git 依赖的构建脚本，首次 `add` 会提示把确切的包键加入该 profile `pnpm-workspace.yaml` 的 `allowBuilds`，然后重新 `add`：
 > ```yaml
 > allowBuilds:
 >   dsh-messager: true
 > ```
->
-> 锁到某个 commit 更稳妥：`... add github:ly6170/dsh-messager#<commit-sha>`。
 
-### 验证
+### 验证 / Verify
 
-打开 `http://127.0.0.1:3080`，设置 → Plugins 页出现「dsh-messager」卡片即安装成功。首次加载会请求浏览器通知权限。
+打开 `http://127.0.0.1:3080`，设置 → 侧边菜单出现「通知&信使」分区即安装成功；首次加载会请求浏览器通知权限。
 
-## 配置
+---
 
-配置优先级：**schema 默认值 → base（该插件行的 `config:`）→ 用户层（Web 设置页）**。
+## 配置 / Configuration
 
-用户层三处入口，同源不冲突、任一变更即时生效：
+配置优先级：**schema 默认值 → base（该插件行的 `config:`）→ 用户层（Web 设置页/分区）**。
 
-1. **Web 设置页**：设置 → Plugins 标签页 →「dsh-messager 通知」卡片；
-2. **设置文档**：编辑 `$DSH_HOME/settings.yaml` 的 `messager:` 段；
-3. **RPC**：`settings.describe` / `settings.mutate`。
+用户层入口（同源不冲突、任一变更实时生效）：
+
+1. **设置页「通知&信使」分区**：完整字段表单，所有环境（含发行版）可用；
+2. **设置文档**：编辑 `$DSH_HOME/settings.yaml` 的 `messager:` 段（完整字段，含 dedup 节流等）；
+3. **RPC**：`settings.describe` / `settings.mutate`（host 侧可用）。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `triggers.interaction` | boolean | `true` | 需要交互时通知（审批/提问/计划待审） |
+| `triggers.interaction` | boolean | `true` | 需要交互时通知 |
 | `triggers.completed` | boolean | `true` | 任务完成时通知 |
 | `triggers.error` | boolean | `true` | 任务出错时通知 |
 | `system.enabled` | boolean | `true` | 系统通知通道 |
-| `system.icon` | string | - | 图标绝对路径（node-notifier 需要文件路径，且文件必须存在） |
+| `system.icon` | string | - | 图标绝对路径（node-notifier 需要文件路径，且该文件必须存在） |
 | `system.verbosity` | `minimal\|normal\|detailed` | `normal` | 系统通知内容繁复度 |
 | `browser.enabled` | boolean | `true` | 浏览器通知通道 |
-| `browser.icon` | string | - | 图标 URL 或 data URL |
-| `browser.onlyWhenHidden` | boolean | `true` | 仅页面隐藏/未聚焦时弹出 |
+| `browser.onlyWhenHidden` | boolean | `true` | 仅页面隐藏/未聚焦时弹 |
 | `browser.verbosity` | `minimal\|normal\|detailed` | `normal` | 浏览器通知内容繁复度 |
 | `feishu.enabled` | boolean | `false` | 飞书机器人（webhook）通道 |
 | `feishu.webhookUrl` | string | - | 自定义机器人 webhook 地址 |
 | `feishu.secret` | string（secret） | - | 签名密钥（机器人「安全设置-签名校验」） |
 | `feishu.timeoutMs` | number | `5000` | 单次请求超时 |
 | `feishu.verbosity` | `minimal\|normal\|detailed` | `normal` | 卡片内容繁复度 |
-| `dedup.interactionCooldownMs` | number | `10000` | 同会话同触发冷却（也用于跨标签去重窗口） |
+| `dedup.interactionCooldownMs` | number | `10000` | 同会话同触发冷却 |
 | `dedup.completedDebounceMs` | number | `1000` | 完成通知防抖 |
 | `dedup.perChannelPerMinute` | number | `20` | 每通道每分钟上限 |
-| `message.titlePrefix` | string | - | 标题前缀，如 `[DSH]` |
+| `message.titlePrefix` | string | - | 标题前缀 |
 | `message.includeSessionTitle` | boolean | `true` | 正文附带会话标题 |
 | `message.guiUrl` | string | `http://127.0.0.1:3080` | 通知「打开」链接目标 |
 
-内容繁复度：`minimal` 只有标题；`normal` 增加会话标题/工具名/结束原因/错误摘要；`detailed` 再增加 turn/step、审批原因与 GUI 链接。
+内容繁复度：`minimal` 只有标题；`normal` 增加会话标题 / 工具名 / 结束原因 / 错误摘要；`detailed` 再增加 turn/step、审批原因与 GUI 链接。
 
-## 通道扩展
+---
 
-实现 `NotifyChannel` 接口并在 `src/index.ts` 的 `buildChannels()` 注册即可接入新第三方通道：
+## 设置分区「通知&信使」/ *Settings section*
+
+安装后 DSH 设置页左侧菜单出现 **「通知&信使」** 分区，内含完整配置表单。读写经插件自身的 webServer 路由（`/dsh-messager/config`，同源校验 + 脱敏视图）直达 host 端 `settings` 服务——**不依赖 DSH 设置白名单，发行版（npx/npm 安装）开箱即用，无需任何补丁**。
+
+> 配置与 `settings.yaml` 同源（同一命名空间），任一处变更均实时生效。
+> *Internationalized: the section menu and form follow the DSH display language (简体中文 / English).*
+
+---
+
+## 触发信号 / Trigger signals
+
+| 触发 | host 端（system/feishu） | client 端（browser） |
+| --- | --- | --- |
+| 审批 | `session/event` `approval/asked` | 摘要 `pendingInteraction==='approval'` 出现 |
+| 提问/计划待审 | `session/event` `tool/call`（`ask_user_question`） | `pendingInteraction==='question'/'plan-review'` 出现 |
+| 任务完成 | `agent/status` running→idle（仅根会话）＋`turn/end` 原因 | 摘要 `running:true→false` 且非当前会话 |
+| 任务出错 | `agent/error` | -（host 端覆盖） |
+
+> **分叉会话（fork）处理**：完成通知只对真正的子代理（`origin === 'subagent'`）排除，分叉会话（`sessions.fork`，其 `parentSession` 指向源会话但 `origin` 为空）视为顶层会话，照常通知。
+
+---
+
+## 通道扩展 / Channel extension
+
+实现 `NotifyChannel` 接口并在 `src/index.ts` 的 `buildChannels()` 注册即可接入新通道：
 
 ```ts
 export interface NotifyChannel {
@@ -140,70 +168,61 @@ export interface NotifyChannel {
 }
 ```
 
-## 项目结构
+---
+
+## 项目结构 / Project structure
 
 ```
 dsh-messager/
-├── package.json          # dsh.bundle + dsh.client 双声明；exports["./client"]
+├── package.json          # dsh.bundle + dsh.client 双声明；exports["./client"]；publishConfig/prepublishOnly
 ├── tsconfig.json         # host 端（Node）
 ├── tsconfig.client.json  # client 端声明输出（lib/types/client）
 ├── tsdown.config.ts      # client bundle（__ModuleLoader__.load 契约）
+├── cordis.yml            # 本地开发覆盖层（host 端）
 ├── cordis.patch.yml      # 分发包配置层（安装后生效）
 ├── assets/icon.png       # 默认通知图标
-├── doc/
-│   └── 用户安装指南.md     # 使用方安装指南
 ├── src/
-│   ├── index.ts          # host apply：事件接线 + settings 注册 + 通道构建
+│   ├── index.ts          # host apply：事件接线 + settings 注册 + 通道构建 + 路由挂载
 │   ├── config.ts         # Config schema（Loader config 与 settings 共用）
+│   ├── config-shared.ts  # 配置路由的跨端共享类型（host/client 共用）
+│   ├── config-route.ts   # webServer 配置路由（GET 视图 / POST ops，同源校验）
 │   ├── signals.ts        # 事件 → Signal 提取（纯函数）
 │   ├── notify.ts         # 调度：过滤/冷却/防抖/限流 + NotifyChannel 接口
 │   ├── templates.ts      # verbosity 模板渲染（纯函数）
 │   ├── settings.ts       # settings 命名空间注册（base = Loader config）
 │   ├── channels/         # system（node-notifier）、feishu（webhook+签名）
-│   └── client/           # 浏览器端：sessions diff、Notification、配置同步
+│   └── client/           # 浏览器端：sessions diff、Notification、设置分区、配置同步
+│       ├── index.ts      # 分区注册（动态 order）+ 浏览器通知 + 配置路由访问器
+│       ├── section.tsx   # 设置页「通知&信使」分区组件
+│       ├── settings-form.tsx  # 共享表单体（分组 + FieldRow + 操作栏）
+│       ├── card-controller.ts # 表单控制器（纯逻辑，可单测）
+│       ├── fetch-scope.ts     # ScopeLike 的 fetch 适配层（配置路由）
+│       ├── locales.ts    # zh/en 字典（ctx.locale 注册）
+│       ├── config.ts     # 浏览器通知的配置句柄（走配置路由）
+│       └── diff.ts       # 会话摘要 diff（纯函数）
 └── tests/                # vitest 单元测试
 ```
 
-## 发行版（npx 安装的 DSH）：启用设置页卡片
+---
 
-DSH 的 Web 设置接口只放行**硬编码白名单**（`WEB_SETTINGS_NAMESPACES`，在
-`dsh-host-apiproxy` 包内），第三方插件的命名空间默认被拒（`settings-not-exposed`），
-因此设置 → 插件页会显示 dsh-messager 卡片但提示「命名空间不可用」。本仓库提供
-**一次性补丁脚本** `patch-host.mjs`，把 `"messager"` 加进已安装包的白名单：
-
-```sh
-# 在插件被安装到的 profile 内执行（node_modules/dsh-messager 为插件安装位置）
-cd "$DSH_HOME/profiles/web"   # 或你的 profile 目录
-node node_modules/dsh-messager/patch-host.mjs   # 补丁（幂等，已打则跳过）
-node node_modules/dsh-messager/patch-host.mjs --check    # 只查看状态
-node node_modules/dsh-messager/patch-host.mjs --revert   # 撤销补丁
-# 然后重启 dsh web（lib/index.js 是启动时加载的）
-```
-
-> - 只在**发行版 / npx 安装**的 DSH 需要；**源码运行**（`pnpm dsh`）不需要 ——
->   白名单已在源码中（`packages/host/apiproxy/src/api-proxy.ts`）。
-> - **DSH 升级后需重跑一次**（升级会覆盖 `lib/index.js`）。脚本对旧版/新版均兼容
->   （自动处理白名单末项是否带尾逗号），找不到数组时会给出手工修改指引。
-> - 不打补丁也能用：直接编辑 `~/.dsh/settings.yaml` 的 `messager:` 段即可，功能不受影响。
-
-## 开发与测试
+## 开发与测试 / Development
 
 ```sh
 pnpm install
-pnpm test       # 单元测试：信号提取/模板/调度/飞书签名/配置解析/client diff
+pnpm test       # 单元测试：信号/模板/调度/飞书签名/配置解析/client diff/配置路由/fetch scope/字典一致性
 pnpm typecheck  # host 端类型检查
 pnpm build      # host tsc + client 声明 + client bundle（lib/）
 ```
 
-> 本地开发完整步骤见 [doc/用户安装指南.md](doc/用户安装指南.md) 的「本地开发调试」小节。
+---
 
-## 已知边界
+## 已知边界 / Known limitations
 
 - 浏览器通知需站点权限；`onlyWhenHidden=false` 时页面可见也会弹；
-- 多标签页经 localStorage 冷却去重；不同浏览器各自通知；
-- 子代理结束不触发完成通知（仅根会话），避免噪音；
+- 多标签页经 localStorage 冷却去重，不同浏览器各自通知；
+- 子代理结束不触发完成通知（仅根会话）——分叉会话视为顶层且会通知；
 - 通道失败（webhook 超时、toast 不可用）只记日志，不影响其他通道与插件运行；
-- 完成/交互的去重状态为内存态，DSH 重启后重置。
+- 完成/交互去重状态为内存态，DSH 重启后重置。
 
 ### 系统通知（node-notifier）跨平台前提
 
@@ -215,18 +234,8 @@ pnpm build      # host tsc + client 声明 + client bundle（lib/）
 | macOS | terminal-notifier | 首次使用需联网下载第三方二进制，且需登录图形会话（Dock 存在）；`sound` 不生效 |
 | Linux | notify-send（libnotify） | 需安装 `libnotify-bin`，并有运行中的通知守护进程（GNOME Shell / Plasma / mako / dunst 等）；`sound` 不生效 |
 
-- **图标**：`system.icon` 需是存在的文件路径，通道层已做存在性校验，无效时降级为不带图标。
+---
 
-## 许可
+## 许可 / License
 
 [MIT](LICENSE) © [ly6170](https://github.com/ly6170)
-
-## 贡献
-
-欢迎提交 Issue 与 Pull Request。新增第三方通道（钉钉/企业微信/Telegram…）只需实现 `NotifyChannel` 接口。
-
-## 后续规划
-
-- 第三方通道扩展：钉钉/企业微信/Telegram/邮件
-- 触发扩展：后台 job 完成、goal 轮次完成
-- 通知历史、按会话静音、勿扰时段

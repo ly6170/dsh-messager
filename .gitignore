@@ -21,12 +21,5 @@ pnpm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
-
-# 打包 / 覆盖率
-*.tgz
-*.tar.gz
-coverage/
-.vitest/
-
-# 本地协同目录
 .agent-teams/
+*.tgz
