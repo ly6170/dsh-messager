@@ -1,6 +1,6 @@
 {
   "name": "dsh-messager",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "DeepSeek Harness 通知插件：会话交互/任务完成/出错时通过系统通知、浏览器通知、飞书机器人（webhook）推送提醒",
   "type": "module",
   "main": "lib/index.js",
@@ -33,6 +33,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "node-notifier": "^10.0.1",
+    "react": "^18.2.0"
+  },
+  "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-agent": "0.1.0-rc.6",
     "@deepseek-ai/dsh-api-remotes": "0.1.0-rc.6",
@@ -47,9 +51,24 @@
     "@deepseek-ai/dsh-session-title": "0.1.0-rc.6",
     "@deepseek-ai/dsh-settings": "0.1.0-rc.6",
     "@deepseek-ai/dsh-user-approval": "0.1.0-rc.6",
-    "@deepseek-ai/schemastery": "^3.18.1",
-    "node-notifier": "^10.0.1",
-    "react": "^18.2.0"
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": { "optional": true },
+    "@deepseek-ai/dsh-agent": { "optional": true },
+    "@deepseek-ai/dsh-api-remotes": { "optional": true },
+    "@deepseek-ai/dsh-client-connection": { "optional": true },
+    "@deepseek-ai/dsh-client-locale": { "optional": true },
+    "@deepseek-ai/dsh-client-runtime": { "optional": true },
+    "@deepseek-ai/dsh-client-ui-primitives": { "optional": true },
+    "@deepseek-ai/dsh-client-ui-settings": { "optional": true },
+    "@deepseek-ai/dsh-client-ui-slots": { "optional": true },
+    "@deepseek-ai/dsh-host-webserver": { "optional": true },
+    "@deepseek-ai/dsh-session": { "optional": true },
+    "@deepseek-ai/dsh-session-title": { "optional": true },
+    "@deepseek-ai/dsh-settings": { "optional": true },
+    "@deepseek-ai/dsh-user-approval": { "optional": true },
+    "@deepseek-ai/schemastery": { "optional": true }
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
