@@ -33,3 +33,18 @@
       #     webhookUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/<token>'
       #     secret: ''
       #     timeoutMs: 5000
+      #   wecom:
+      #     enabled: false
+      #     webhookUrl: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=<key>'
+      #     secret: ''
+      #   discord:
+      #     enabled: false
+      #     webhookUrl: 'https://discord.com/api/webhooks/<id>/<token>'
+      #   dingtalk:
+      #     enabled: false
+      #     webhookUrl: 'https://oapi.dingtalk.com/robot/send?access_token=<token>'
+      #     secret: ''
+      #   telegram:
+      #     enabled: false
+      #     botToken: ''
+      #     chatId: ''

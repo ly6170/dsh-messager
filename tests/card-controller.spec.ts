@@ -40,13 +40,13 @@ function mergeLayers(under: unknown, over: unknown): Record<string, unknown> {
   return out
 }
 
-/** 模拟服务端脱敏：任意深度移除键名为 secret 的字段。 */
+/** 模拟服务端脱敏：任意深度移除 role('secret') 字段（schema 里的 secret/botToken）。 */
 function redact(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redact)
   if (typeof value === 'object' && value !== null) {
     const out: Record<string, unknown> = {}
     for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      if (key === 'secret') continue
+      if (key === 'secret' || key === 'botToken') continue
       out[key] = redact(entry)
     }
     return out
@@ -138,6 +138,10 @@ const baseConfig = {
   system: { enabled: true, verbosity: 'normal' },
   browser: { enabled: true, onlyWhenHidden: true, verbosity: 'normal' },
   feishu: { enabled: false, timeoutMs: 5000, verbosity: 'normal' },
+  wecom: { enabled: false, timeoutMs: 5000, verbosity: 'normal' },
+  discord: { enabled: false, timeoutMs: 5000, verbosity: 'normal' },
+  dingtalk: { enabled: false, timeoutMs: 5000, verbosity: 'normal' },
+  telegram: { enabled: false, timeoutMs: 5000, verbosity: 'normal' },
   message: { includeSessionTitle: true, guiUrl: 'http://127.0.0.1:3080' },
 }
 
@@ -151,6 +155,11 @@ describe('MessagerCardController', () => {
     expect(state.dirty).toBe(false)
     expect(state.fields['triggers.interaction']).toEqual({ text: 'true', overridden: false, invalid: false })
     expect(state.fields['feishu.timeoutMs']).toEqual({ text: '5000', overridden: false, invalid: false })
+    expect(state.fields['wecom.enabled']).toEqual({ text: 'false', overridden: false, invalid: false })
+    expect(state.fields['discord.enabled']).toEqual({ text: 'false', overridden: false, invalid: false })
+    expect(state.fields['dingtalk.enabled']).toEqual({ text: 'false', overridden: false, invalid: false })
+    expect(state.fields['telegram.enabled']).toEqual({ text: 'false', overridden: false, invalid: false })
+    expect(state.fields['telegram.timeoutMs']).toEqual({ text: '5000', overridden: false, invalid: false })
   })
 
   it('不可用/只读时反映状态', () => {
@@ -331,6 +340,50 @@ describe('MessagerCardController', () => {
       expect(value.feishu.webhookUrl).toBeUndefined() // 门控字段未写入
     })
 
+    it('system.enabled 关闭时：icon/verbosity 草稿不产生保存计划；开启后可保存', async () => {
+      // 默认 baseConfig：system.enabled = true → icon 可编辑保存
+      const onScope = fakeScope({ value: baseConfig })
+      const on = makeController(onScope)
+      on.face.edit('system', 'icon', '/tmp/icon.png')
+      expect(on.snapshot().dirty).toBe(true)
+      on.face.save()
+      await vi.waitFor(() => expect(on.snapshot().saving).toBe(false))
+      expect(onScope.state().rawUser).toMatchObject({ system: { icon: '/tmp/icon.png' } })
+      // system.enabled = false → icon 草稿被计划跳过
+      const offScope = fakeScope({ value: { ...baseConfig, system: { ...baseConfig.system, enabled: false } } })
+      const off = makeController(offScope)
+      off.face.edit('system', 'icon', '/tmp/icon.png')
+      expect(off.snapshot().dirty).toBe(false)
+      off.face.edit('system', 'verbosity', 'detailed')
+      expect(off.snapshot().dirty).toBe(false)
+    })
+
+    it('browser.enabled 关闭时：onlyWhenHidden/verbosity 草稿不参与保存', () => {
+      const scope = fakeScope({ value: { ...baseConfig, browser: { ...baseConfig.browser, enabled: false } } })
+      const { face, snapshot } = makeController(scope)
+      face.edit('browser', 'onlyWhenHidden', 'false')
+      face.edit('browser', 'verbosity', 'detailed')
+      expect(snapshot().dirty).toBe(false)
+    })
+
+    it('telegram botToken 是 write-only：填入保存后不回显、门控关闭不保存', async () => {
+      const telegramOn = { ...baseConfig, telegram: { ...baseConfig.telegram, enabled: true } }
+      const scope = fakeScope({ value: telegramOn, base: telegramOn })
+      const { face, snapshot } = makeController(scope)
+      face.edit('telegram', 'botToken', '123:ABC')
+      expect(snapshot().dirty).toBe(true)
+      face.save()
+      await vi.waitFor(() => expect(snapshot().saving).toBe(false))
+      expect(snapshot().failed).toBe(false)
+      expect(scope.state().rawUser).toMatchObject({ telegram: { botToken: '123:ABC' } })
+      expect(scope.state().value.telegram).not.toHaveProperty('botToken')
+      // 门控关闭（telegram.enabled=false）：botToken 草稿不参与保存
+      const offScope = fakeScope({ value: baseConfig })
+      const off = makeController(offScope)
+      off.face.edit('telegram', 'botToken', '123:ABC')
+      expect(off.snapshot().dirty).toBe(false)
+    })
+
     it('isFieldGated：按当前字段状态判断渲染可见性', () => {
       const gated = CARD_FIELDS.find(spec => spec.field === 'webhookUrl')
       expect(gated?.hiddenUnless).toEqual({ group: 'feishu', field: 'enabled' })
@@ -338,6 +391,13 @@ describe('MessagerCardController', () => {
       expect(isFieldGated(gated!, { 'feishu.enabled': { text: 'true', overridden: false, invalid: false } })).toBe(false)
       const plain = CARD_FIELDS.find(spec => spec.field === 'interaction')
       expect(isFieldGated(plain!, {})).toBe(false)
+      // system/browser 子字段同样受 enabled 门控
+      const sysIcon = CARD_FIELDS.find(spec => spec.group === 'system' && spec.field === 'icon')
+      expect(sysIcon?.hiddenUnless).toEqual({ group: 'system', field: 'enabled' })
+      expect(isFieldGated(sysIcon!, { 'system.enabled': { text: 'false', overridden: false, invalid: false } })).toBe(true)
+      const brOnly = CARD_FIELDS.find(spec => spec.group === 'browser' && spec.field === 'onlyWhenHidden')
+      expect(brOnly?.hiddenUnless).toEqual({ group: 'browser', field: 'enabled' })
+      expect(isFieldGated(brOnly!, { 'browser.enabled': { text: 'true', overridden: false, invalid: false } })).toBe(false)
     })
   })
 })

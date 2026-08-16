@@ -177,13 +177,17 @@ export class NotificationDispatcher {
     return true
   }
 
-  /** 通道 verbosity：system/feishu 各自配置；未知通道取 normal。 */
+  /** 通道 verbosity：各通道独立配置；未知通道取 normal。 */
   private verbosityFor(channelId: string): Verbosity {
-    switch (channelId) {
-      case 'system': return this.config.system.verbosity
-      case 'feishu': return this.config.feishu.verbosity
-      default: return 'normal'
+    const byId: Record<string, Verbosity> = {
+      system: this.config.system.verbosity,
+      feishu: this.config.feishu.verbosity,
+      wecom: this.config.wecom.verbosity,
+      discord: this.config.discord.verbosity,
+      dingtalk: this.config.dingtalk.verbosity,
+      telegram: this.config.telegram.verbosity,
     }
+    return byId[channelId] ?? 'normal'
   }
 
   /** 清空防抖定时器（插件卸载时调用；订阅与通道本身由 effect 清理）。 */

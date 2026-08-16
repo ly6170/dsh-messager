@@ -2,8 +2,8 @@
  * dsh-messager —— DeepSeek Harness 通知插件（服务端 host 端）。
  *
  * 功能：会话需要交互（审批/提问/计划待审）、任务完成、任务出错时，
- * 通过系统通知（node-notifier）、飞书机器人（webhook）推送提醒；
- * 浏览器通知由浏览器 client 端（src/client/index.ts）投递。
+ * 通过系统通知（node-notifier）、飞书/企业微信/Discord/钉钉/Telegram
+ * 第三方通道推送提醒；浏览器通知由浏览器 client 端（src/client/index.ts）投递。
  *
  * 配置：Loader config（cordis.yml）注册为 settings 命名空间 `messager`
  * 的 base 层，设置页可覆盖；两者变更均热生效。
@@ -19,6 +19,10 @@ import { interactionSignalOf, errorMessageOf, turnEndReasonOf } from './signals.
 import { NotificationDispatcher, type NotifyChannel } from './notify.js'
 import { createSystemChannel } from './channels/system.js'
 import { createFeishuChannel } from './channels/feishu.js'
+import { createWecomChannel } from './channels/wecom.js'
+import { createDiscordChannel } from './channels/discord.js'
+import { createDingtalkChannel } from './channels/dingtalk.js'
+import { createTelegramChannel } from './channels/telegram.js'
 import { registerMessagerSettings } from './settings.js'
 import { mountConfigRoutes, type SettingsServiceLike } from './config-route.js'
 
@@ -37,6 +41,33 @@ function buildChannels(config: Config): NotifyChannel[] {
       webhookUrl: config.feishu.webhookUrl,
       ...(config.feishu.secret === undefined ? {} : { secret: config.feishu.secret }),
       timeoutMs: config.feishu.timeoutMs,
+    }))
+  }
+  if (config.wecom.enabled && config.wecom.webhookUrl !== undefined) {
+    channels.push(createWecomChannel({
+      webhookUrl: config.wecom.webhookUrl,
+      ...(config.wecom.secret === undefined ? {} : { secret: config.wecom.secret }),
+      timeoutMs: config.wecom.timeoutMs,
+    }))
+  }
+  if (config.discord.enabled && config.discord.webhookUrl !== undefined) {
+    channels.push(createDiscordChannel({
+      webhookUrl: config.discord.webhookUrl,
+      timeoutMs: config.discord.timeoutMs,
+    }))
+  }
+  if (config.dingtalk.enabled && config.dingtalk.webhookUrl !== undefined) {
+    channels.push(createDingtalkChannel({
+      webhookUrl: config.dingtalk.webhookUrl,
+      ...(config.dingtalk.secret === undefined ? {} : { secret: config.dingtalk.secret }),
+      timeoutMs: config.dingtalk.timeoutMs,
+    }))
+  }
+  if (config.telegram.enabled && config.telegram.botToken !== undefined && config.telegram.chatId !== undefined) {
+    channels.push(createTelegramChannel({
+      botToken: config.telegram.botToken,
+      chatId: config.telegram.chatId,
+      timeoutMs: config.telegram.timeoutMs,
     }))
   }
   return channels

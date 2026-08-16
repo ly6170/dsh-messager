@@ -54,6 +54,52 @@ export interface FeishuChannelConfig {
   verbosity: Verbosity
 }
 
+/** 企业微信群机器人通道（webhook，host 端投递）。 */
+export interface WecomChannelConfig {
+  enabled: boolean
+  /** 群机器人 webhook 地址（形如 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx）。 */
+  webhookUrl?: string
+  /** 加签密钥（机器人「安全设置-加签」），配置后按 HMAC-SHA256 签名（无需 URL 编码）。 */
+  secret?: string
+  /** 单次请求超时（ms）。 */
+  timeoutMs: number
+  verbosity: Verbosity
+}
+
+/** Discord 通道（webhook，host 端投递）。 */
+export interface DiscordChannelConfig {
+  enabled: boolean
+  /** Discord webhook 地址（形如 https://discord.com/api/webhooks/<id>/<token>）。 */
+  webhookUrl?: string
+  /** 单次请求超时（ms）。 */
+  timeoutMs: number
+  verbosity: Verbosity
+}
+
+/** 钉钉自定义机器人通道（webhook，host 端投递）。 */
+export interface DingtalkChannelConfig {
+  enabled: boolean
+  /** 自定义机器人 webhook 地址（形如 https://oapi.dingtalk.com/robot/send?access_token=xxx）。 */
+  webhookUrl?: string
+  /** 加签密钥（机器人「安全设置-加签」），配置后按 HMAC-SHA256 签名（需 URL 编码）。 */
+  secret?: string
+  /** 单次请求超时（ms）。 */
+  timeoutMs: number
+  verbosity: Verbosity
+}
+
+/** Telegram 通道（Bot API，host 端投递）。 */
+export interface TelegramChannelConfig {
+  enabled: boolean
+  /** Bot Token（@BotFather 获取）。 */
+  botToken?: string
+  /** 接收 chat_id（数字 ID 或 @频道用户名）。 */
+  chatId?: string
+  /** 单次请求超时（ms）。 */
+  timeoutMs: number
+  verbosity: Verbosity
+}
+
 /** 去重 / 节流配置。 */
 export interface DedupConfig {
   /** 同一会话同一类触发的冷却时间（ms）。 */
@@ -79,6 +125,10 @@ export interface Config {
   system: SystemChannelConfig
   browser: BrowserChannelConfig
   feishu: FeishuChannelConfig
+  wecom: WecomChannelConfig
+  discord: DiscordChannelConfig
+  dingtalk: DingtalkChannelConfig
+  telegram: TelegramChannelConfig
   dedup: DedupConfig
   message: MessageConfig
 }
@@ -110,6 +160,33 @@ export const Config: Schema<Config> = Schema.object({
     enabled: Schema.boolean().default(false),
     webhookUrl: Schema.string(),
     secret: Schema.string().role('secret'),
+    timeoutMs: Schema.number().default(5000),
+    verbosity: verbosity.default('normal'),
+  }),
+  wecom: Schema.object({
+    enabled: Schema.boolean().default(false),
+    webhookUrl: Schema.string(),
+    secret: Schema.string().role('secret'),
+    timeoutMs: Schema.number().default(5000),
+    verbosity: verbosity.default('normal'),
+  }),
+  discord: Schema.object({
+    enabled: Schema.boolean().default(false),
+    webhookUrl: Schema.string(),
+    timeoutMs: Schema.number().default(5000),
+    verbosity: verbosity.default('normal'),
+  }),
+  dingtalk: Schema.object({
+    enabled: Schema.boolean().default(false),
+    webhookUrl: Schema.string(),
+    secret: Schema.string().role('secret'),
+    timeoutMs: Schema.number().default(5000),
+    verbosity: verbosity.default('normal'),
+  }),
+  telegram: Schema.object({
+    enabled: Schema.boolean().default(false),
+    botToken: Schema.string().role('secret'),
+    chatId: Schema.string(),
     timeoutMs: Schema.number().default(5000),
     verbosity: verbosity.default('normal'),
   }),

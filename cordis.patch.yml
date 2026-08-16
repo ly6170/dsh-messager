@@ -9,3 +9,16 @@
       #   feishu:
       #     enabled: true
       #     webhookUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/<token>'
+      #   wecom:
+      #     enabled: false
+      #     webhookUrl: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=<key>'
+      #   discord:
+      #     enabled: false
+      #     webhookUrl: 'https://discord.com/api/webhooks/<id>/<token>'
+      #   dingtalk:
+      #     enabled: false
+      #     webhookUrl: 'https://oapi.dingtalk.com/robot/send?access_token=<token>'
+      #   telegram:
+      #     enabled: false
+      #     botToken: ''
+      #     chatId: ''

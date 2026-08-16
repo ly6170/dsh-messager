@@ -8,6 +8,10 @@ describe('config schema', () => {
     expect(config.system).toEqual({ enabled: true, verbosity: 'normal' })
     expect(config.browser).toEqual({ enabled: true, onlyWhenHidden: true, verbosity: 'normal' })
     expect(config.feishu).toEqual({ enabled: false, timeoutMs: 5000, verbosity: 'normal' })
+    expect(config.wecom).toEqual({ enabled: false, timeoutMs: 5000, verbosity: 'normal' })
+    expect(config.discord).toEqual({ enabled: false, timeoutMs: 5000, verbosity: 'normal' })
+    expect(config.dingtalk).toEqual({ enabled: false, timeoutMs: 5000, verbosity: 'normal' })
+    expect(config.telegram).toEqual({ enabled: false, timeoutMs: 5000, verbosity: 'normal' })
     expect(config.dedup).toEqual({
       interactionCooldownMs: 10000,
       completedDebounceMs: 1000,

@@ -16,6 +16,10 @@ export const GROUP_TITLE_KEYS: Record<string, string> = {
   system: 'group.system',
   browser: 'group.browser',
   feishu: 'group.feishu',
+  wecom: 'group.wecom',
+  discord: 'group.discord',
+  dingtalk: 'group.dingtalk',
+  telegram: 'group.telegram',
   message: 'group.message',
 }
 
@@ -147,9 +151,60 @@ const SAVE_STYLE: React.CSSProperties = {
   color: 'var(--dsw-alias-bg-layer-3)',
 }
 
+// ---- Switch 开关（iOS 风格滑动开关，--dsw-alias-* 主题变量） ----
+
+const SWITCH_TRACK_STYLE: React.CSSProperties = {
+  position: 'relative',
+  flex: 'none',
+  width: 36,
+  height: 20,
+  borderRadius: 999,
+  border: 'none',
+  padding: 0,
+  transition: 'background 0.2s ease',
+}
+
+const SWITCH_THUMB_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  top: 2,
+  width: 16,
+  height: 16,
+  borderRadius: '50%',
+  background: 'var(--dsw-alias-bg-layer-3)',
+  boxShadow: '0 1px 2px rgb(0 0 0 / 0.25)',
+  transition: 'left 0.2s ease',
+}
+
+/** 开关控件：轨道 + 滑块；选中时轨道用品牌色。 */
+function Switch({ id, checked, disabled, onChange }: {
+  id: string
+  checked: boolean
+  disabled: boolean
+  onChange(next: boolean): void
+}) {
+  return (
+    <button
+      id={id}
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      style={{
+        ...SWITCH_TRACK_STYLE,
+        background: checked ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-border-l2)',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      <span style={{ ...SWITCH_THUMB_STYLE, left: checked ? 18 : 2 }} />
+    </button>
+  )
+}
+
 // ---- 字段行（ValueField 同款布局） ----
 
-/** 渲染一个字段行（DSH ValueField 同款；toggle 标签与勾选框同一行）。 */
+/** 渲染一个字段行（DSH ValueField 同款；toggle 标签与开关同一行）。 */
 function FieldRow({ spec, state, actions, t, disabled }: {
   spec: CardFieldSpec
   state: MessagerCardState['fields'][string]
@@ -169,20 +224,23 @@ function FieldRow({ spec, state, actions, t, disabled }: {
   )
 
   if (spec.kind === 'toggle') {
-    // 勾选框与描述同一行：标签占满左侧，徽标/重置与勾选框靠右
+    // 开关与描述同一行：标签占满左侧，徽标/重置与开关靠右
+    const checked = state.text === 'true'
     return (
       <div style={{ ...FIELD_STYLE, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, minHeight: 34 }}>
-        <label style={{ ...FIELD_LABEL_STYLE, flex: '1 1 auto', cursor: disabled ? 'default' : 'pointer' }} htmlFor={id}>
+        <label
+          style={{ ...FIELD_LABEL_STYLE, flex: '1 1 auto', cursor: disabled ? 'default' : 'pointer' }}
+          htmlFor={id}
+          onClick={disabled ? undefined : () => actions.edit(spec.group, spec.field, String(!checked))}
+        >
           {label}
         </label>
         {overriddenBadge}
-        <input
+        <Switch
           id={id}
-          type="checkbox"
-          checked={state.text === 'true'}
+          checked={checked}
           disabled={disabled}
-          onChange={(event) => actions.edit(spec.group, spec.field, String(event.target.checked))}
-          style={{ flex: 'none', accentColor: 'var(--dsw-alias-brand-primary)' }}
+          onChange={(next) => actions.edit(spec.group, spec.field, String(next))}
         />
         {spec.hint !== undefined && <p style={{ ...HINT_STYLE, flexBasis: '100%' }}>{t(spec.hint)}</p>}
       </div>
@@ -209,7 +267,7 @@ function FieldRow({ spec, state, actions, t, disabled }: {
         type="text"
         inputMode={spec.kind === 'number' ? 'numeric' : undefined}
         value={state.text}
-        placeholder={spec.secret === true ? t('hint.feishu.secret') : undefined}
+        placeholder={spec.secret === true && spec.hint !== undefined ? t(spec.hint) : undefined}
         disabled={disabled}
         aria-invalid={state.invalid}
         onChange={(event) => actions.edit(spec.group, spec.field, event.target.value)}

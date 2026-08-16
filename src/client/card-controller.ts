@@ -412,15 +412,32 @@ export const CARD_FIELDS: readonly CardFieldSpec[] = [
   { group: 'triggers', field: 'interaction', kind: 'toggle', label: 'field.triggers.interaction' },
   { group: 'triggers', field: 'completed', kind: 'toggle', label: 'field.triggers.completed' },
   { group: 'triggers', field: 'error', kind: 'toggle', label: 'field.triggers.error' },
-  // 系统通知
+  // 系统通知：enabled 为门控开关，关闭时隐藏子配置
   { group: 'system', field: 'enabled', kind: 'toggle', label: 'field.system.enabled' },
-  { group: 'system', field: 'verbosity', kind: 'select', label: 'field.system.verbosity', options: ['minimal', 'normal', 'detailed'] },
-  { group: 'system', field: 'icon', kind: 'text', label: 'field.system.icon', hint: 'hint.system.icon' },
-  // 浏览器通知
+  {
+    group: 'system', field: 'verbosity', kind: 'select', label: 'field.system.verbosity',
+    options: ['minimal', 'normal', 'detailed'],
+    hiddenUnless: { group: 'system', field: 'enabled' },
+  },
+  {
+    group: 'system', field: 'icon', kind: 'text', label: 'field.system.icon', hint: 'hint.system.icon',
+    hiddenUnless: { group: 'system', field: 'enabled' },
+  },
+  // 浏览器通知：enabled 为门控开关，关闭时隐藏子配置
   { group: 'browser', field: 'enabled', kind: 'toggle', label: 'field.browser.enabled' },
-  { group: 'browser', field: 'onlyWhenHidden', kind: 'toggle', label: 'field.browser.onlyWhenHidden' },
-  { group: 'browser', field: 'verbosity', kind: 'select', label: 'field.browser.verbosity', options: ['minimal', 'normal', 'detailed'] },
-  { group: 'browser', field: 'icon', kind: 'text', label: 'field.browser.icon' },
+  {
+    group: 'browser', field: 'onlyWhenHidden', kind: 'toggle', label: 'field.browser.onlyWhenHidden',
+    hiddenUnless: { group: 'browser', field: 'enabled' },
+  },
+  {
+    group: 'browser', field: 'verbosity', kind: 'select', label: 'field.browser.verbosity',
+    options: ['minimal', 'normal', 'detailed'],
+    hiddenUnless: { group: 'browser', field: 'enabled' },
+  },
+  {
+    group: 'browser', field: 'icon', kind: 'text', label: 'field.browser.icon',
+    hiddenUnless: { group: 'browser', field: 'enabled' },
+  },
   // 第三方推送（飞书机器人 webhook）：enabled 为门控开关，关闭时不显示/不保存子配置
   { group: 'feishu', field: 'enabled', kind: 'toggle', label: 'field.feishu.enabled' },
   {
@@ -429,7 +446,7 @@ export const CARD_FIELDS: readonly CardFieldSpec[] = [
   },
   {
     group: 'feishu', field: 'secret', kind: 'text', label: 'field.feishu.secret',
-    hint: 'hint.feishu.secret', secret: true,
+    hint: 'hint.secret', secret: true,
     hiddenUnless: { group: 'feishu', field: 'enabled' },
   },
   {
@@ -440,6 +457,81 @@ export const CARD_FIELDS: readonly CardFieldSpec[] = [
     group: 'feishu', field: 'verbosity', kind: 'select', label: 'field.feishu.verbosity',
     options: ['minimal', 'normal', 'detailed'],
     hiddenUnless: { group: 'feishu', field: 'enabled' },
+  },
+  // 第三方推送（企业微信群机器人 webhook）：enabled 为门控开关
+  { group: 'wecom', field: 'enabled', kind: 'toggle', label: 'field.wecom.enabled' },
+  {
+    group: 'wecom', field: 'webhookUrl', kind: 'text', label: 'field.wecom.webhookUrl',
+    hiddenUnless: { group: 'wecom', field: 'enabled' },
+  },
+  {
+    group: 'wecom', field: 'secret', kind: 'text', label: 'field.wecom.secret',
+    hint: 'hint.secret', secret: true,
+    hiddenUnless: { group: 'wecom', field: 'enabled' },
+  },
+  {
+    group: 'wecom', field: 'timeoutMs', kind: 'number', label: 'field.wecom.timeoutMs',
+    hiddenUnless: { group: 'wecom', field: 'enabled' },
+  },
+  {
+    group: 'wecom', field: 'verbosity', kind: 'select', label: 'field.wecom.verbosity',
+    options: ['minimal', 'normal', 'detailed'],
+    hiddenUnless: { group: 'wecom', field: 'enabled' },
+  },
+  // 第三方推送（Discord webhook）
+  { group: 'discord', field: 'enabled', kind: 'toggle', label: 'field.discord.enabled' },
+  {
+    group: 'discord', field: 'webhookUrl', kind: 'text', label: 'field.discord.webhookUrl',
+    hiddenUnless: { group: 'discord', field: 'enabled' },
+  },
+  {
+    group: 'discord', field: 'timeoutMs', kind: 'number', label: 'field.discord.timeoutMs',
+    hiddenUnless: { group: 'discord', field: 'enabled' },
+  },
+  {
+    group: 'discord', field: 'verbosity', kind: 'select', label: 'field.discord.verbosity',
+    options: ['minimal', 'normal', 'detailed'],
+    hiddenUnless: { group: 'discord', field: 'enabled' },
+  },
+  // 第三方推送（钉钉自定义机器人 webhook）
+  { group: 'dingtalk', field: 'enabled', kind: 'toggle', label: 'field.dingtalk.enabled' },
+  {
+    group: 'dingtalk', field: 'webhookUrl', kind: 'text', label: 'field.dingtalk.webhookUrl',
+    hiddenUnless: { group: 'dingtalk', field: 'enabled' },
+  },
+  {
+    group: 'dingtalk', field: 'secret', kind: 'text', label: 'field.dingtalk.secret',
+    hint: 'hint.secret', secret: true,
+    hiddenUnless: { group: 'dingtalk', field: 'enabled' },
+  },
+  {
+    group: 'dingtalk', field: 'timeoutMs', kind: 'number', label: 'field.dingtalk.timeoutMs',
+    hiddenUnless: { group: 'dingtalk', field: 'enabled' },
+  },
+  {
+    group: 'dingtalk', field: 'verbosity', kind: 'select', label: 'field.dingtalk.verbosity',
+    options: ['minimal', 'normal', 'detailed'],
+    hiddenUnless: { group: 'dingtalk', field: 'enabled' },
+  },
+  // 第三方推送（Telegram Bot API）
+  { group: 'telegram', field: 'enabled', kind: 'toggle', label: 'field.telegram.enabled' },
+  {
+    group: 'telegram', field: 'botToken', kind: 'text', label: 'field.telegram.botToken',
+    hint: 'hint.secret', secret: true,
+    hiddenUnless: { group: 'telegram', field: 'enabled' },
+  },
+  {
+    group: 'telegram', field: 'chatId', kind: 'text', label: 'field.telegram.chatId',
+    hiddenUnless: { group: 'telegram', field: 'enabled' },
+  },
+  {
+    group: 'telegram', field: 'timeoutMs', kind: 'number', label: 'field.telegram.timeoutMs',
+    hiddenUnless: { group: 'telegram', field: 'enabled' },
+  },
+  {
+    group: 'telegram', field: 'verbosity', kind: 'select', label: 'field.telegram.verbosity',
+    options: ['minimal', 'normal', 'detailed'],
+    hiddenUnless: { group: 'telegram', field: 'enabled' },
   },
   // 消息内容
   { group: 'message', field: 'titlePrefix', kind: 'text', label: 'field.message.titlePrefix', hint: 'hint.message.titlePrefix' },

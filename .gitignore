@@ -6,6 +6,10 @@ lib/
 # 类型检查缓存
 *.tsbuildinfo
 
+# 测试产物与缓存
+coverage/
+.vitest/
+
 # 日志
 *.log
 npm-debug.log*
