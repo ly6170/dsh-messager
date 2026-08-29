@@ -209,6 +209,21 @@ pnpm typecheck  # host 端
 pnpm build      # host tsc + client 声明 + client bundle（lib/）
 ```
 
+## 版本兼容（DSH 0.1.1-rc.2+ / APIProxy → @Remote）
+
+- 本插件自 **v0.2.1** 起将全部 @deepseek-ai/dsh-* peerDependencies 从 `0.1.0-rc.6` 升级到
+  **`0.1.1-rc.2`**（npm 当前最新），对应 DSH「旧版调用接口 APIProxy 已迁移并移除，统一使用
+  @Remote 网关」的版本线；
+- 兼容性要点：
+  - 插件**无需源码改造**：客户端事件订阅本就走 `ctx.remote.$on`（@Remote/Typert），
+    配置读写走插件自有 webServer 路由 `/dsh-messager/config`，均不依赖旧 APIProxy 面；
+  - `peerDependencies` 补齐了 `dsh-api-remotes@0.1.1-rc.2` 所需的全部类型面 peer
+    （api-gateway / credentials / llm / commands / typert-registry 等），保证 client 端
+    Typert 类型声明合并完整（`settings/document-updated` 等转发事件可类型化订阅）；
+  - 新版 DSH 的 Web 设置面有命名空间白名单（`WEB_SETTINGS_NAMESPACES`）：要让 DSH
+    原生设置面读取 `messager` 命名空间，需在 DSH 源码该白名单中加入 `messager`
+    （插件自身设置路由不受此限制）。
+
 ## 已知边界
 
 - 浏览器通知需站点权限；`onlyWhenHidden=false` 时页面可见也会弹。

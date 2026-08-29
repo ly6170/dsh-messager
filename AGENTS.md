@@ -19,6 +19,9 @@
 - 语言：TypeScript（`strict` 全开，`noUncheckedIndexedAccess` 开启，ESM，
   `NodeNext` 模块解析）；client 端含 TSX（React 18）。
 - 包管理：pnpm（`packageManager: pnpm@11.7.0`）。
+- 平台版本线：peerDependencies 全部为 **`@deepseek-ai/dsh-*@0.1.1-rc.2`**（DSH「APIProxy
+  已移除、统一 @Remote 网关」之后的 npm 最新版；0.1.2-alpha.1 仅在 GitHub 源码，未发 npm）。
+  client 端事件订阅必须走 `ctx.remote.$on`（Typert/@Remote），不要使用旧 APIProxy 面。
 - 测试：vitest（`environment: 'node'`，测试位于 `tests/**/*.spec.ts`）。
 - 构建：`pnpm build` = host tsc（`tsconfig.json`）+ client 声明
   （`tsconfig.client.json`，仅产出 `lib/types/`，`emitDeclarationOnly`）+ client bundle
@@ -97,6 +100,10 @@ base 的写法：dev 调试在 `cordis.yml`，正式安装走 profile 的 `cordi
 
 - **双端文件 import 边界**：`src/config-shared.ts` 不得 import 任何 Node/浏览器专属模块；
   host 端（`src/` 非 client）不要混入 DOM；client 端不要 import Node 模块。
+- **升级 peerDeps 时必须补齐类型面**：`dsh-api-remotes` 的 peerDependencies 会驱动 client 端
+  Typert 类型声明合并（`TypertRemoteEventSelection` → `ctx.remote.$on` 的合法键集）；升版本时
+  若缺失其 peer（api-gateway/credentials/llm/commands/typert-registry 等），`$on` 会退化为
+  `never` 报错，需同步在 package.json 与 pnpm-workspace.yaml 补全。
 - **verbatimModuleSyntax** 已开启：type-only import 要写 `import type`；否则类型检查报错。
 - **`noUncheckedIndexedAccess`** 已开启：索引访问可能得到 `undefined`，需显式处理。
 - **settings 服务可能晚于本插件挂载**：注册命名空间必须在 `ctx.inject(['settings'], …)`

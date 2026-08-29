@@ -178,6 +178,14 @@ pnpm typecheck  # host side
 pnpm build      # host tsc + client declarations + client bundle (lib/)
 ```
 
+## Version compatibility (DSH 0.1.1-rc.2+ / APIProxy → @Remote)
+
+- Starting with **v0.2.1**, all `@deepseek-ai/dsh-*` peerDependencies are upgraded from `0.1.0-rc.6` to **`0.1.1-rc.2`** (the current npm release line), matching DSH's migration away from the legacy APIProxy surface toward the unified **@Remote gateway**.
+- Compatibility notes:
+  - **No source changes were required in the plugin**: client-side event subscription already uses `ctx.remote.$on` (@Remote/Typert), and config reads/writes go through the plugin's own webserver route `/dsh-messager/config` — neither depends on the old APIProxy surface.
+  - `peerDependencies` now includes all type-surface peers required by `dsh-api-remotes@0.1.1-rc.2` (api-gateway / credentials / llm / commands / typert-registry, etc.), so client-side Typert declaration merging stays complete (forwarded events such as `settings/document-updated` can be subscribed with full typings).
+  - Newer DSH Web settings has a namespace allowlist (`WEB_SETTINGS_NAMESPACES`): for the native DSH settings page to read the `messager` namespace, add `messager` to that allowlist in DSH source if needed — the plugin's own settings route is not restricted by it.
+
 ## Known limitations
 
 - Browser notifications require site permission; with `onlyWhenHidden=false` they also pop while visible.
