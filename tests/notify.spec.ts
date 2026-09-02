@@ -84,7 +84,7 @@ describe('NotificationDispatcher', () => {
     })
     dispatcher.onSignal(completedSignal)
     dispatcher.onSignal({ ...completedSignal, seq: 5 })
-    dispatcher.noteTurnEnd('s1', { kind: 'aborted', reason: 'user' })
+    dispatcher.noteTurnEnd('s1', { kind: 'aborted', reason: { kind: 'user' } })
     expect(channel.received).toHaveLength(0)
     vi.advanceTimersByTime(1_100)
     await Promise.resolve()

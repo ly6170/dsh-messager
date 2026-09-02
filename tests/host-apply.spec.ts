@@ -20,12 +20,13 @@ function fakeSettingsService(config: unknown = {}) {
 
 /** 构造一个只含历史标题事件的假会话（模拟进程重启后恢复的会话：历史事件不重放）。 */
 function fakeSessionWithHistoricalTitle(id: string, title: string) {
+  const events = [
+    { type: 'session/title', seq: 1, time: 1, data: { title, messageSeqs: [], source: { kind: 'fallback' } } },
+  ]
   return {
     id,
     header: { parentSession: undefined },
-    events: [
-      { type: 'session/title', seq: 1, time: 1, data: { title, messageSeqs: [], source: { kind: 'fallback' } } },
-    ],
+    snapshotEvents: () => events,
   }
 }
 
@@ -117,7 +118,7 @@ describe('host apply 的会话标题兜底', () => {
     const session = {
       id: 'session-forked',
       header: { parentSession: 'session-source' },
-      events: [],
+      snapshotEvents: () => [],
     }
     const agent = { id: 'session-forked', session }
     ctx.emit('agent/status', { agent, status: 'running' } as never)
@@ -135,7 +136,7 @@ describe('host apply 的会话标题兜底', () => {
     const session = {
       id: 'session-subagent',
       header: { parentSession: 'session-parent', origin: 'subagent' },
-      events: [],
+      snapshotEvents: () => [],
     }
     const agent = { id: 'session-subagent', session }
     ctx.emit('agent/status', { agent, status: 'running' } as never)

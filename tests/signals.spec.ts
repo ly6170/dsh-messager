@@ -62,8 +62,8 @@ describe('turnEndReasonOf', () => {
     expect(turnEndReasonOf(event('turn/end', { turn: 2, reason: { kind: 'completed' } }))).toEqual({
       turn: 2, reason: { kind: 'completed' },
     })
-    expect(turnEndReasonOf(event('turn/end', { turn: 2, reason: { kind: 'aborted', reason: 'user' } }))?.reason).toEqual({
-      kind: 'aborted', reason: 'user',
+    expect(turnEndReasonOf(event('turn/end', { turn: 2, reason: { kind: 'aborted', reason: { kind: 'user' } } }))?.reason).toEqual({
+      kind: 'aborted', reason: { kind: 'user' },
     })
   })
 

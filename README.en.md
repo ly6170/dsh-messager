@@ -24,14 +24,14 @@ Trigger semantics align with the Web UI status dots: **orange = needs interactio
 
 **One step for a formal install** (host + browser client both take effect; then just start with `dsh web` — **no** `--patch` needed):
 
-```sh
+``sh
 # Build inside the plugin repo
 pnpm install
 pnpm build
 
 dsh plugin --profile web add <plugin-path>
 dsh web   # or dsh --profile web
-```
+``
 
 > `pnpm install` and `pnpm build` run inside your plugin checkout; replace `<plugin-path>` with that directory (absolute or relative both work).
 
@@ -50,10 +50,10 @@ After installation, a **「通知&信使」** (Messenger) section appears in the
 - **Host side (quick)**: from the DSH repo root run
   `pnpm dsh web --patch <plugin-path>/cordis.yml` — loads the TS source directly (HMR works). In source mode the host runs via tsx, so no build is needed to load that path.
 - **Full dual-runtime**: the browser (client) side requires the plugin to enter the Loader as a package for clientModules to scan it into the Web bundle (`--patch` file-path entries are not scanned), so do a full install into the profile:
-  ```sh
+  ``sh
   dsh plugin --profile web add <plugin-path>   # source mode: pnpm dsh plugin ...
   pnpm dsh web   # run from the DSH source repo
-  ```
+  ``
   **Restart** `pnpm dsh web` after `plugin add` (clientModules scans at startup; a running instance does not hot-add new bundles). After changing client code, re-run `pnpm run build:client` in your own repo and refresh the page (the bundle carries a rev hash so it is re-fetched; the DSH repo's `dev:web` watcher only watches in-workspace client plugins, not external ones).
 
 Browser notifications require user permission: the plugin requests it once on load when the permission is `default`; if denied, the browser channel degrades silently (other channels are unaffected) — re-authorize in the browser's site settings.
@@ -130,16 +130,16 @@ Verbosity: `minimal` = title only; `normal` adds session title/tool name/end rea
 
 Add a third-party channel (DingTalk / WeCom / Telegram…) by implementing the `NotifyChannel` interface and registering it in `buildChannels()` in `src/index.ts`:
 
-```ts
+``ts
 export interface NotifyChannel {
   readonly id: string
   send(payload: NotificationPayload): Promise<void>
 }
-```
+``
 
 ## Project structure
 
-```
+``
 dsh-messager/
 ├── package.json          # dsh.bundle + dsh.client dual declarations; exports["./client"]
 ├── tsconfig.json         # host side (Node)
@@ -168,23 +168,22 @@ dsh-messager/
 │       ├── config.ts     # browser-notification config handle (via the config route)
 │       └── diff.ts       # session summary diff (pure functions)
 └── tests/                # vitest unit tests (126)
-```
+``
 
 ## Testing
 
-```sh
+``sh
 pnpm test       # 126 unit tests: signal extraction/templates/dispatch/channel payloads & signatures/config parsing/client diff/config route/fetch scope/locale consistency/form gating
 pnpm typecheck  # host side
 pnpm build      # host tsc + client declarations + client bundle (lib/)
-```
+``
 
-## Version compatibility (DSH 0.1.1-rc.2+ / APIProxy → @Remote)
+## Version compatibility (dsh-messager 0.3.0 / DSH 0.1.2-alpha.5)
 
-- Starting with **v0.2.1**, all `@deepseek-ai/dsh-*` peerDependencies are upgraded from `0.1.0-rc.6` to **`0.1.1-rc.2`** (the current npm release line), matching DSH's migration away from the legacy APIProxy surface toward the unified **@Remote gateway**.
+- **v0.3.0 supports only DSH `0.1.2-alpha.5`**; all `@deepseek-ai/dsh-*` peerDependencies are pinned to that version.
 - Compatibility notes:
-  - **No source changes were required in the plugin**: client-side event subscription already uses `ctx.remote.$on` (@Remote/Typert), and config reads/writes go through the plugin's own webserver route `/dsh-messager/config` — neither depends on the old APIProxy surface.
-  - `peerDependencies` now includes all type-surface peers required by `dsh-api-remotes@0.1.1-rc.2` (api-gateway / credentials / llm / commands / typert-registry, etc.), so client-side Typert declaration merging stays complete (forwarded events such as `settings/document-updated` can be subscribed with full typings).
-  - Newer DSH Web settings has a namespace allowlist (`WEB_SETTINGS_NAMESPACES`): for the native DSH settings page to read the `messager` namespace, add `messager` to that allowlist in DSH source if needed — the plugin's own settings route is not restricted by it.
+  - The removed `dsh-client-runtime` is no longer used. Client session lists use `dsh-api-session-controller`, interaction state uses `dsh-client-ui-session`, and slot services use `dsh-client-ui-renderer`.
+  - The `messager` settings namespace is registered from the Loader config and can also be read/written through the plugin's own `/dsh-messager/config` route, which is not subject to DSH's settings namespace allowlist.
 
 ## Known limitations
 

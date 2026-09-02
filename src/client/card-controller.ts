@@ -15,7 +15,7 @@
  * - 点「重置」= 发出 unset 清除已存密钥。
  */
 
-import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 
 /** 字段控件类型。 */
 export type CardFieldKind = 'toggle' | 'text' | 'number' | 'select'
@@ -83,10 +83,7 @@ export interface MessagerCardActions {
 /** 槽位注入面：hooks 中的 messagerCard 会变成 useMessagerCard 选择器；动作平铺为组件 props。 */
 export interface MessagerCardFace {
   hooks: {
-    messagerCard: {
-      getSnapshot(): MessagerCardState
-      subscribe(listener: () => void): () => void
-    }
+    messagerCard: HostObservable<MessagerCardState>
   }
   edit(group: string, field: string, text: string): void
   reset(group: string, field: string): void

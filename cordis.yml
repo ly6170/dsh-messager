@@ -1,21 +1,19 @@
-# 本地开发覆盖层（模板）：用 `--patch` 把 host 端 TS 源码直接加载进 DSH Web UI。
-#
-# 从 DSH 仓库根目录运行：
+# 本地开发覆盖层：从 DSH 仓库根目录运行
 #   pnpm dsh web --patch <本文件的绝对路径>
-#
-# ⚠️ 请先修改下方 name 路径为你的本机克隆路径，再使用本文件。
-#   插件行的 name 在 Windows 上必须写成 file:/// URL 形式 —— 裸的 `D:/...` 会被
-#   Node ESM loader 把 `D:` 当成 URL scheme 解析而报 ERR_UNSUPPORTED_ESM_URL_SCHEME。
-#   相对路径则按“根配置文件所在目录”（即 profile 目录）解析，不按本文件目录。
+# 即可把本插件的 host 端 TS 源码直接加载进 Web UI（http://127.0.0.1:3080）。
 #
 # 注意：
+# - 插件行的 name 在 Windows 上必须写成 file:/// URL 形式 —— 裸的 `E:/...` 会被
+#   Node ESM loader 把 `E:` 当成 URL scheme 解析而报 ERR_UNSUPPORTED_ESM_URL_SCHEME。
+#   相对路径则按“根配置文件所在目录”（即 profile 目录）解析，不按本文件目录；
+#   换机器后请修改下方的 name 路径为你的本机路径。
 # - 本覆盖层只加载 host 端。浏览器（client）端需要插件以包身份进入 Loader 才能被
 #   clientModules 扫描编入 Web bundle，完整开发请用：
-#     dsh plugin --profile web add <插件路径>
+#     dsh plugin --profile <name> add <插件路径>
 #   （详见 README「本地开发」一节）
 - insert:
     - id: messager
-      name: 'file:///<你的本机克隆路径>/src/index.ts'
+      name: 'file:///E:/Develop/dsh-messager/src/index.ts'
       # 配置示例（可省略，schema 有默认值；设置页可覆盖用户层）：
       # config:
       #   triggers:

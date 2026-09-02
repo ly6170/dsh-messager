@@ -13,11 +13,11 @@ DeepSeek Harness（DSH）**任务状态通知插件**：会话需要交互、任
 
 | 需求 | 实现 |
 | --- | --- |
-| 触发时机 | 需要交互（审批 `approval/asked`、提问/计划待审 `ask_user_question`、客户端 pendingInteraction）、任务完成（`agent/status` running→idle 且仅根会话 + `turn/end` 原因）、任务出错（`agent/error`） |
+| 触发时机 | 需要交互（审批 `approval/asked`、提问/计划待审 `ask_user_question`、客户端 `uiSession.pendingInteractions`）、任务完成（`agent/status` running→idle 且仅根会话 + `turn/end` 原因）、任务出错（`agent/error`） |
 | 推送路径 | 系统通知（node-notifier toast）、浏览器通知（Notification API）、飞书（interactive 卡片 + HMAC-SHA256 签名）、企业微信（markdown + 可选加签）、Discord（embed 卡片）、钉钉（actionCard + 可选加签）、Telegram（Bot API HTML 消息）；`NotifyChannel` 接口可扩展 |
 | 可配置 | 触发开关、各通道启停/verbosity/icon、去重冷却、标题前缀等，见[配置](#配置) |
 
-触发语义与 Web UI 状态圆点完全对齐：**橙点 = 需要交互**（`pendingInteraction`），**绿点 = 任务完成**
+触发语义与 Web UI 状态圆点完全对齐：**橙点 = 需要交互**（`uiSession.pendingInteractions`），**绿点 = 任务完成**
 （`running→idle` 且非当前会话），**蓝点 = 运行中**（不通知）。
 
 ## 安装
@@ -151,8 +151,8 @@ host 端把 Loader config 注册为 settings 命名空间 `messager` 的 base �
 
 | 触发 | host 端（system/feishu/wecom/discord/dingtalk/telegram） | client 端（browser） |
 | --- | --- | --- |
-| 审批 | `session/event` `approval/asked` | 摘要 `pendingInteraction==='approval'` 出现 |
-| 提问/计划待审 | `session/event` `tool/call`（`ask_user_question`） | `pendingInteraction==='question'/'plan-review'` 出现 |
+| 审批 | `session/event` `approval/asked` | `ctx.uiSession.pendingInteractions` 中 `kind==='approval'` 从无到有 |
+| 提问/计划待审 | `session/event` `tool/call`（`ask_user_question`） | `ctx.uiSession.pendingInteractions` 中 `kind==='question'/'plan-review'` 从无到有 |
 | 任务完成 | `agent/status` running→idle（仅根会话）＋`turn/end` 原因 | 摘要 `running:true→false` 且非当前会话 |
 | 任务出错 | `agent/error` | -（host 端覆盖） |
 
@@ -179,6 +179,7 @@ dsh-messager/
 ├── cordis.yml            # 本地开发覆盖层（host 端）
 ├── cordis.patch.yml      # 分发包配置层（安装后生效）
 ├── assets/icon.png       # 默认通知图标
+├── doc/plan/             # 规划存档（01 起编号）
 ├── src/
 │   ├── index.ts          # host apply：事件接线 + settings 注册 + 通道构建 + 路由挂载
 │   ├── config.ts         # Config schema（Loader config 与 settings 共用）
@@ -197,32 +198,29 @@ dsh-messager/
 │       ├── fetch-scope.ts     # ScopeLike 的 fetch 适配层（配置路由）
 │       ├── locales.ts    # zh/en 字典（ctx.locale 注册）
 │       ├── config.ts     # 浏览器通知的配置句柄（走配置路由）
-│       └── diff.ts       # 会话摘要 diff（纯函数）
-└── tests/                # vitest 单元测试（126 个）
+│       └── diff.ts       # 完成摘要 / 待交互状态 diff（纯函数）
+└── tests/                # vitest 单元测试（129 个）
 ```
 
 ## 测试
 
 ```sh
-pnpm test       # 126 个单元测试：信号提取/模板/调度/各通道签名与载荷/配置解析/client diff/配置路由/fetch scope/字典一致性/表单门控
+pnpm test       # 129 个单元测试：信号提取/模板/调度/各通道签名与载荷/配置解析/client diff/配置路由/fetch scope/字典一致性/表单门控
 pnpm typecheck  # host 端
 pnpm build      # host tsc + client 声明 + client bundle（lib/）
 ```
 
-## 版本兼容（DSH 0.1.1-rc.2+ / APIProxy → @Remote）
+## 版本兼容（dsh-messager 0.3.0 / DSH 0.1.2-alpha.5）
 
-- 本插件自 **v0.2.1** 起将全部 @deepseek-ai/dsh-* peerDependencies 从 `0.1.0-rc.6` 升级到
-  **`0.1.1-rc.2`**（npm 当前最新），对应 DSH「旧版调用接口 APIProxy 已迁移并移除，统一使用
-  @Remote 网关」的版本线；
-- 兼容性要点：
-  - 插件**无需源码改造**：客户端事件订阅本就走 `ctx.remote.$on`（@Remote/Typert），
-    配置读写走插件自有 webServer 路由 `/dsh-messager/config`，均不依赖旧 APIProxy 面；
-  - `peerDependencies` 补齐了 `dsh-api-remotes@0.1.1-rc.2` 所需的全部类型面 peer
-    （api-gateway / credentials / llm / commands / typert-registry 等），保证 client 端
-    Typert 类型声明合并完整（`settings/document-updated` 等转发事件可类型化订阅）；
-  - 新版 DSH 的 Web 设置面有命名空间白名单（`WEB_SETTINGS_NAMESPACES`）：要让 DSH
-    原生设置面读取 `messager` 命名空间，需在 DSH 源码该白名单中加入 `messager`
-    （插件自身设置路由不受此限制）。
+- **v0.3.0 仅支持 DSH `0.1.2-alpha.5`**；所有 `@deepseek-ai/dsh-*` peerDependencies
+  统一锁定该版本，不再兼容旧 RC 接口。
+- client 端适配新版拆分：会话列表来自 `dsh-api-session-controller`，交互状态来自
+  `dsh-client-ui-session` 的 `ctx.uiSession.pendingInteractions`，`ctx.slots` 由
+  `dsh-client-ui-renderer` 提供；不再依赖已移除的 `dsh-client-runtime`。
+- 完成通知仍按会话摘要 `running: true → false` 且非当前会话触发；交互通知仅在
+  `approval` / `question` / `plan-review` 从无到有时触发，首次订阅只建立基线。
+- host 设置使用字符串命名空间 `messager`；配置读写继续走插件自有 webServer 路由
+  `/dsh-messager/config`，现有 schema、settings 数据和第三方通道配置无需迁移或重置。
 
 ## 已知边界
 
@@ -253,3 +251,5 @@ pnpm build      # host tsc + client 声明 + client bundle（lib/）
 - 第三方通道扩展：邮件
 - 触发扩展：后台 job 完成、goal 轮次完成
 - 通知历史、按会话静音、勿扰时段
+
+规划存档见 `doc/plan/01-通知插件实施规划.md`。

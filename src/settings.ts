@@ -7,7 +7,6 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-settings'
 import { Config, type Config as ConfigShape } from './config.js'
 
@@ -25,7 +24,7 @@ export interface MessagerSettings {
  * @returns 设置句柄（注册本身是 effect，随注入 scope 卸载）。
  */
 export function registerMessagerSettings(ctx: Context, base: ConfigShape): MessagerSettings {
-  const scope = ctx.settings.register(settingsNamespace('messager'), Config, { base, applies: 'live' })
+  const scope = ctx.settings.register('messager', Config, { base, applies: 'live' })
   return {
     get: () => scope.get(),
     watch: (callback) => scope.watch(callback),

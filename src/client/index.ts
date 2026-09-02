@@ -16,15 +16,17 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-client-runtime/client'
-import type { SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionPendingInteractionSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 // 类型合并：ctx.locale（dsh-client-locale）与 settings.section 槽位声明（ui-settings）
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { Verbosity } from '../config.js'
 import type { Config } from '../config.js'
 import { ClientConfig, type ClientConfigHandle } from './config.js'
-import { diffSessionSummaries, type ClientNotice } from './diff.js'
+import { diffPendingInteractions, diffSessionSummaries, type ClientNotice } from './diff.js'
 import { CARD_FIELDS, MessagerCardController } from './card-controller.js'
 import { createFetchScope, type ConfigFetcher } from './fetch-scope.js'
 import { MessagerSection } from './section.jsx'
@@ -37,7 +39,7 @@ export const name = 'dsh-messager'
 export const LOCALE_NS = 'dsh-messager'
 
 /** 依赖的客户端服务：会话列表、远程事件（document-updated）、槽位、locale。 */
-export const inject = ['sessions', 'remote', 'slots', 'locale']
+export const inject = ['sessions', 'uiSession', 'remote', 'slots', 'locale']
 
 /** localStorage 跨标签页去重键前缀。 */
 const STORAGE_PREFIX = 'dsh-messager:notified:'
@@ -55,13 +57,25 @@ class BrowserNotifier {
 
   /** 列表快照变化 → 通知。 */
   onListChange(previous: SessionListState, next: SessionListState): void {
+    this.onNotices(diffSessionSummaries(previous.byId, next.byId, next.current))
+  }
+
+  /** 待交互快照变化 → 通知。 */
+  onPendingChange(
+    previous: SessionPendingInteractionSnapshot,
+    next: SessionPendingInteractionSnapshot,
+    sessions: SessionListState,
+  ): void {
+    this.onNotices(diffPendingInteractions(previous, next, sessions.byId))
+  }
+
+  private onNotices(notices: readonly ClientNotice[]): void {
     const config = this.config.get()
     if (!config.browser.enabled) return
     if (typeof Notification === 'undefined') return
     if (Notification.permission !== 'granted') return
     if (config.browser.onlyWhenHidden && document.visibilityState !== 'hidden') return
 
-    const notices = diffSessionSummaries(previous.byId, next.byId, next.current)
     for (const notice of notices) {
       if (!this.allow(notice, config)) continue
       this.show(notice, config)
@@ -175,6 +189,16 @@ export function apply(ctx: Context): void {
     previous = next
   })
   ctx.effect(() => () => offList(), 'dsh-messager: sessions subscription')
+
+  // 审批/提问/计划待审已从 SessionSummary 拆到 uiSession 独立状态流。
+  // 当前快照只作为基线，不补发插件加载前已经存在的交互。
+  let previousPending = ctx.uiSession.pendingInteractions.getSnapshot()
+  const offPending = ctx.uiSession.pendingInteractions.subscribe(() => {
+    const next = ctx.uiSession.pendingInteractions.getSnapshot()
+    notifier.onPendingChange(previousPending, next, ctx.sessions.list.getSnapshot())
+    previousPending = next
+  })
+  ctx.effect(() => () => offPending(), 'dsh-messager: pending interactions subscription')
 
   // 设置页分区「通知&信使」：注册到 settings.section。
   // 数据经 webServer 配置路由读写（不受白名单门控），控制器与表单复用

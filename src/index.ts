@@ -79,7 +79,7 @@ function buildChannels(config: Config): NotifyChannel[] {
  * 实时 session/event 只在事件发生时投递一次，不会重放历史。
  */
 function sessionTitleOf(session: Session): string | undefined {
-  const events = session.events
+  const events = session.snapshotEvents()
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index]
     if (event === undefined) continue

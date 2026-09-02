@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import type { SessionId, SessionSummary } from '@deepseek-ai/dsh-client-runtime/client'
-import { diffSessionSummaries } from '../src/client/diff.ts'
+import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionPendingInteractionBase } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { diffPendingInteractions, diffSessionSummaries } from '../src/client/diff.ts'
+
+function sessionId(id: string): SessionId {
+  return id as SessionId
+}
 
 function summary(
   id: string,
   overrides: Partial<SessionSummary> = {},
 ): [SessionId, SessionSummary] {
-  return [id as SessionId, {
-    id: id as SessionId,
+  const branded = sessionId(id)
+  return [branded, {
+    id: branded,
     displayTitle: `会话-${id}`,
     blank: false,
     running: false,
@@ -20,46 +27,83 @@ function toRecord(entries: Array<[SessionId, SessionSummary]>): Record<SessionId
   return Object.fromEntries(entries) as Record<SessionId, SessionSummary>
 }
 
-describe('diffSessionSummaries', () => {
-  it('pendingInteraction 无→有：产生 interaction 通知（approval）', () => {
-    const prev = toRecord([summary('s1')])
-    const next = toRecord([summary('s1', { pendingInteraction: 'approval' })])
-    const notices = diffSessionSummaries(prev, next, undefined)
-    expect(notices).toEqual([
-      { kind: 'interaction', sessionId: 's1', interaction: 'approval', title: '会话-s1' },
-    ])
-  })
+function pending(id: string, kind: string, key = `${kind}:1`): [SessionId, SessionPendingInteractionBase] {
+  const branded = sessionId(id)
+  return [branded, { key, kind, sessionId: branded }]
+}
 
-  it('question / plan-review 同样触发 interaction', () => {
-    for (const interaction of ['question', 'plan-review'] as const) {
-      const prev = toRecord([summary('s1')])
-      const next = toRecord([summary('s1', { pendingInteraction: interaction })])
-      expect(diffSessionSummaries(prev, next, undefined)[0]?.interaction).toBe(interaction)
+function toPending(entries: Array<[SessionId, SessionPendingInteractionBase]>) {
+  return new Map(entries)
+}
+
+describe('diffPendingInteractions', () => {
+  it('approval / question / plan-review 从无到有时产生交互通知', () => {
+    const summaries = toRecord([summary('s1')])
+    for (const kind of ['approval', 'question', 'plan-review'] as const) {
+      expect(diffPendingInteractions(
+        toPending([]),
+        toPending([pending('s1', kind)]),
+        summaries,
+      )).toEqual([{
+        kind: 'interaction', sessionId: 's1', interaction: kind, title: '会话-s1',
+      }])
     }
   })
 
+  it('交互持续存在时不重复通知', () => {
+    const previous = toPending([pending('s1', 'approval', 'approval:1')])
+    const next = toPending([pending('s1', 'approval', 'approval:2')])
+    expect(diffPendingInteractions(previous, next, toRecord([summary('s1')]))).toEqual([])
+  })
+
+  it('交互移除后重新出现会再次通知', () => {
+    const active = toPending([pending('s1', 'question')])
+    const empty = toPending([])
+    const summaries = toRecord([summary('s1')])
+    expect(diffPendingInteractions(active, empty, summaries)).toEqual([])
+    expect(diffPendingInteractions(empty, active, summaries)).toHaveLength(1)
+  })
+
+  it('未知 kind 忽略', () => {
+    expect(diffPendingInteractions(
+      toPending([]),
+      toPending([pending('s1', 'future-interaction')]),
+      toRecord([summary('s1')]),
+    )).toEqual([])
+  })
+
+  it('缺少会话摘要时仍通知但不带标题', () => {
+    expect(diffPendingInteractions(
+      toPending([]),
+      toPending([pending('s1', 'approval')]),
+      toRecord([]),
+    )).toEqual([{ kind: 'interaction', sessionId: 's1', interaction: 'approval' }])
+  })
+
+  it('当前快照作为 previous 时只建立基线、不补发历史通知', () => {
+    const current = toPending([pending('s1', 'plan-review')])
+    expect(diffPendingInteractions(current, current, toRecord([summary('s1')]))).toEqual([])
+  })
+})
+
+describe('diffSessionSummaries', () => {
   it('running true→false 且非当前会话：产生 completed 通知', () => {
     const prev = toRecord([summary('s1', { running: true })])
     const next = toRecord([summary('s1', { running: false })])
-    const notices = diffSessionSummaries(prev, next, 's2')
-    expect(notices).toEqual([{ kind: 'completed', sessionId: 's1', title: '会话-s1' }])
+    expect(diffSessionSummaries(prev, next, sessionId('s2'))).toEqual([
+      { kind: 'completed', sessionId: 's1', title: '会话-s1' },
+    ])
   })
 
-  it('当前选中会话的完成不通知（用户正在看它）', () => {
+  it('当前选中会话的完成不通知', () => {
     const prev = toRecord([summary('s1', { running: true })])
     const next = toRecord([summary('s1', { running: false })])
-    expect(diffSessionSummaries(prev, next, 's1')).toEqual([])
+    expect(diffSessionSummaries(prev, next, sessionId('s1'))).toEqual([])
   })
 
-  it('首次出现的会话只建立基线，不通知', () => {
+  it('首次出现的会话只建立基线、不通知', () => {
     const prev = toRecord([])
-    const next = toRecord([summary('s1', { running: true, pendingInteraction: 'approval' })])
-    expect(diffSessionSummaries(prev, next, undefined)).toEqual([])
-  })
-
-  it('pendingInteraction 持续存在（有→有）不重复通知', () => {
-    const prev = toRecord([summary('s1', { pendingInteraction: 'approval' })])
-    const next = toRecord([summary('s1', { pendingInteraction: 'approval' })])
+    const next = toRecord([summary('s1', { running: true })])
     expect(diffSessionSummaries(prev, next, undefined)).toEqual([])
   })
 
@@ -71,7 +115,6 @@ describe('diffSessionSummaries', () => {
 
   it('被移除的会话不通知', () => {
     const prev = toRecord([summary('s1', { running: true })])
-    const next = toRecord([])
-    expect(diffSessionSummaries(prev, next, undefined)).toEqual([])
+    expect(diffSessionSummaries(prev, toRecord([]), undefined)).toEqual([])
   })
 })

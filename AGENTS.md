@@ -19,9 +19,11 @@
 - 语言：TypeScript（`strict` 全开，`noUncheckedIndexedAccess` 开启，ESM，
   `NodeNext` 模块解析）；client 端含 TSX（React 18）。
 - 包管理：pnpm（`packageManager: pnpm@11.7.0`）。
-- 平台版本线：peerDependencies 全部为 **`@deepseek-ai/dsh-*@0.1.1-rc.2`**（DSH「APIProxy
-  已移除、统一 @Remote 网关」之后的 npm 最新版；0.1.2-alpha.1 仅在 GitHub 源码，未发 npm）。
-  client 端事件订阅必须走 `ctx.remote.$on`（Typert/@Remote），不要使用旧 APIProxy 面。
+- 平台版本线：插件版本 **`0.3.0`**，仅支持 DSH **`0.1.2-alpha.5`**；所有
+  `@deepseek-ai/dsh-*` peerDependencies 统一锁定该版本，不兼容旧 RC 接口。
+  client 端会话列表使用 `dsh-api-session-controller`，交互状态使用
+  `dsh-client-ui-session`，槽位服务使用 `dsh-client-ui-renderer`；不要重新引入已移除的
+  `dsh-client-runtime`。
 - 测试：vitest（`environment: 'node'`，测试位于 `tests/**/*.spec.ts`）。
 - 构建：`pnpm build` = host tsc（`tsconfig.json`）+ client 声明
   （`tsconfig.client.json`，仅产出 `lib/types/`，`emitDeclarationOnly`）+ client bundle
@@ -68,7 +70,7 @@ pnpm build       # 完整构建（host tsc + client 声明 + client bundle）
 ## 本地开发
 
 - **host 端（快速）**：从 DSH 仓库根目录运行
-  `pnpm dsh web --patch <本仓库>/cordis.yml`，直接加载 TS 源码，HMR 生效。
+  `pnpm dsh --patch <本仓库>/cordis.yml --profile web`，直接加载 TS 源码，HMR 生效。
   `cordis.yml` 内插件行的 `name` 路径在 Windows 上是硬编码的，换机器需改成本机路径。
 - **完整双运行端**：client 端要求插件以包身份进入 Loader 才会被 clientModules 扫描编入
   Web bundle，因此完整开发要：
@@ -85,9 +87,9 @@ base 的写法：dev 调试在 `cordis.yml`，正式安装走 profile 的 `cordi
 
 ## 触发语义（与 Web UI 状态圆点对齐）
 
-- **橙点 = 需要交互**（`pendingInteraction`）：审批（`approval/asked`）、
-  提问 / 计划待审（`tool/call` 且工具名为 `ask_user_question`）、client 侧摘要
-  `pendingInteraction==='approval' | 'question' | 'plan-review'`。
+- **橙点 = 需要交互**：host 端来自 `approval/asked` 或 `ask_user_question`；client 端订阅
+  `ctx.uiSession.pendingInteractions`，仅在 `approval | question | plan-review` 从无到有时通知，
+  首次快照只建立基线，未知 kind 忽略。
 - **绿点 = 任务完成**：`agent/status` `running→idle` 且仅根会话 + `turn/end` 原因。
 - **蓝点 = 运行中**（不通知）。
 - **任务出错**：`agent/error`，host 端覆盖。
@@ -104,6 +106,10 @@ base 的写法：dev 调试在 `cordis.yml`，正式安装走 profile 的 `cordi
   Typert 类型声明合并（`TypertRemoteEventSelection` → `ctx.remote.$on` 的合法键集）；升版本时
   若缺失其 peer（api-gateway/credentials/llm/commands/typert-registry 等），`$on` 会退化为
   `never` 报错，需同步在 package.json 与 pnpm-workspace.yaml 补全。
+- **client 服务已拆分**：`ctx.sessions` 的类型合并来自
+  `dsh-api-session-controller/client`，`ctx.uiSession.pendingInteractions` 来自
+  `dsh-client-ui-session/client`，`ctx.slots` 来自 `dsh-client-ui-renderer/client`；
+  `dsh-client-ui-slots` 只提供槽位核心类型，不应放入 `dsh.client.inject`。
 - **verbatimModuleSyntax** 已开启：type-only import 要写 `import type`；否则类型检查报错。
 - **`noUncheckedIndexedAccess`** 已开启：索引访问可能得到 `undefined`，需显式处理。
 - **settings 服务可能晚于本插件挂载**：注册命名空间必须在 `ctx.inject(['settings'], …)`
@@ -127,6 +133,17 @@ base 的写法：dev 调试在 `cordis.yml`，正式安装走 profile 的 `cordi
   配置解析 / client diff / 配置路由 / fetch scope / 字典一致性 / 表单控制器各有一份 spec。
   新增逻辑尽量做成纯函数以保持可测性；签名类算法硬编码已知答案向量（node crypto 预计算）；
   `locales.ts` 的 zh/en 键集必须一致（缺失键 fail loud 显示键名）。
+
+## 升级归档
+
+- **2026-09-02 · v0.3.0**：迁移至 DSH `0.1.2-alpha.5`，移除 `dsh-client-runtime`，
+  接入 `dsh-api-session-controller`、`dsh-client-ui-session` 与 `dsh-client-ui-renderer`；
+  settings 命名空间统一为字符串 `messager`，交互通知改由
+  `ctx.uiSession.pendingInteractions` 的无→有变化驱动。
+- 手动加载最新版 DSH 验收通过：Host 与 client 均成功加载，设置页「通知&信使」、配置
+  GET/POST 路由、审批/提问/计划待审及后台任务完成通知均符合预期，系统与第三方通道测试保持通过。
+- 本次升级验证：`pnpm peers check`、`pnpm typecheck`、`pnpm test`（129/129）、
+  `pnpm build`、`pnpm pack --dry-run` 全部通过；未迁移或重置现有配置。
 
 ## 发布与产物
 

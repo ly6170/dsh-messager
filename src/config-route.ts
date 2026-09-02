@@ -15,12 +15,11 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
-import { settingsNamespace, type SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import type { ConfigView, ConfigWriteBody } from './config-shared.js'
 
 /** 命名空间（与 host 注册一致）。 */
-export const CONFIG_NAMESPACE = settingsNamespace('messager')
+export const CONFIG_NAMESPACE = 'messager' as const
 
 export type { ConfigView, ConfigWriteBody } from './config-shared.js'
 
@@ -28,13 +27,13 @@ export type { ConfigView, ConfigWriteBody } from './config-shared.js'
 export interface SettingsServiceLike {
   readonly writable: boolean
   describe(options?: { redactSecrets?: boolean }): ReadonlyArray<{
-    ns: SettingsNamespace
+    ns: string
     value: unknown
     revision: number
     base?: unknown
     user?: unknown
   }>
-  mutate(ns: SettingsNamespace, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>
+  mutate(ns: string, ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<void>
 }
 
 /** 路由注册的宿主（webServer 服务窄接口）。 */

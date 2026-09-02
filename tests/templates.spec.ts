@@ -9,7 +9,7 @@ const interaction: Signal = {
   kind: 'interaction', sessionId: 's1', interaction: 'approval', toolName: 'bash', reason: '需要授权', seq: 1,
 }
 const completed: Signal = { kind: 'completed', sessionId: 's1', reason: { kind: 'completed' }, turn: 2, seq: 2 }
-const aborted: Signal = { kind: 'completed', sessionId: 's1', reason: { kind: 'aborted', reason: 'user' }, seq: 3 }
+const aborted: Signal = { kind: 'completed', sessionId: 's1', reason: { kind: 'aborted', reason: { kind: 'user' } }, seq: 3 }
 const maxTokens: Signal = { kind: 'completed', sessionId: 's1', reason: { kind: 'max-tokens' }, seq: 3 }
 const error: Signal = { kind: 'error', sessionId: 's1', message: 'boom', turn: 1, step: 0, seq: 4 }
 
