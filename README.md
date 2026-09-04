@@ -210,10 +210,11 @@ pnpm typecheck  # host 端
 pnpm build      # host tsc + client 声明 + client bundle（lib/）
 ```
 
-## 版本兼容（dsh-messager 0.3.0 / DSH 0.1.2-alpha.5）
+## 版本兼容（dsh-messager 0.3.1 / DSH 0.1.2-rc.1）
 
-- **v0.3.0 仅支持 DSH `0.1.2-alpha.5`**；所有 `@deepseek-ai/dsh-*` peerDependencies
+- **v0.3.1 仅支持 DSH `0.1.2-rc.1`**；所有 `@deepseek-ai/dsh-*` peerDependencies
   统一锁定该版本，不再兼容旧 RC 接口。
+- 本版本仅更新 DSH peer 依赖版本；通知逻辑、配置格式和现有通道行为不变。
 - client 端适配新版拆分：会话列表来自 `dsh-api-session-controller`，交互状态来自
   `dsh-client-ui-session` 的 `ctx.uiSession.pendingInteractions`，`ctx.slots` 由
   `dsh-client-ui-renderer` 提供；不再依赖已移除的 `dsh-client-runtime`。

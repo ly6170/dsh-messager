@@ -178,9 +178,10 @@ pnpm typecheck  # host side
 pnpm build      # host tsc + client declarations + client bundle (lib/)
 ``
 
-## Version compatibility (dsh-messager 0.3.0 / DSH 0.1.2-alpha.5)
+## Version compatibility (dsh-messager 0.3.1 / DSH 0.1.2-rc.1)
 
-- **v0.3.0 supports only DSH `0.1.2-alpha.5`**; all `@deepseek-ai/dsh-*` peerDependencies are pinned to that version.
+- **v0.3.1 supports only DSH `0.1.2-rc.1`**; all `@deepseek-ai/dsh-*` peerDependencies are pinned to that version.
+- This release only updates the DSH peer dependency versions; notification logic, configuration format, and existing channel behavior are unchanged.
 - Compatibility notes:
   - The removed `dsh-client-runtime` is no longer used. Client session lists use `dsh-api-session-controller`, interaction state uses `dsh-client-ui-session`, and slot services use `dsh-client-ui-renderer`.
   - The `messager` settings namespace is registered from the Loader config and can also be read/written through the plugin's own `/dsh-messager/config` route, which is not subject to DSH's settings namespace allowlist.

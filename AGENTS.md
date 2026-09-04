@@ -19,7 +19,7 @@
 - 语言：TypeScript（`strict` 全开，`noUncheckedIndexedAccess` 开启，ESM，
   `NodeNext` 模块解析）；client 端含 TSX（React 18）。
 - 包管理：pnpm（`packageManager: pnpm@11.7.0`）。
-- 平台版本线：插件版本 **`0.3.0`**，仅支持 DSH **`0.1.2-alpha.5`**；所有
+- 平台版本线：插件版本 **`0.3.1`**，仅支持 DSH **`0.1.2-rc.1`**；所有
   `@deepseek-ai/dsh-*` peerDependencies 统一锁定该版本，不兼容旧 RC 接口。
   client 端会话列表使用 `dsh-api-session-controller`，交互状态使用
   `dsh-client-ui-session`，槽位服务使用 `dsh-client-ui-renderer`；不要重新引入已移除的
@@ -140,6 +140,8 @@ base 的写法：dev 调试在 `cordis.yml`，正式安装走 profile 的 `cordi
   接入 `dsh-api-session-controller`、`dsh-client-ui-session` 与 `dsh-client-ui-renderer`；
   settings 命名空间统一为字符串 `messager`，交互通知改由
   `ctx.uiSession.pendingInteractions` 的无→有变化驱动。
+- **2026-09-04 · v0.3.1**：将全部 DSH peerDependencies 精确更新至 `0.1.2-rc.1`；
+  通知逻辑、配置格式和现有通道行为不变。
 - 手动加载最新版 DSH 验收通过：Host 与 client 均成功加载，设置页「通知&信使」、配置
   GET/POST 路由、审批/提问/计划待审及后台任务完成通知均符合预期，系统与第三方通道测试保持通过。
 - 本次升级验证：`pnpm peers check`、`pnpm typecheck`、`pnpm test`（129/129）、
