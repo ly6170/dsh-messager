@@ -23,7 +23,7 @@ import { createWecomChannel } from './channels/wecom.js'
 import { createDiscordChannel } from './channels/discord.js'
 import { createDingtalkChannel } from './channels/dingtalk.js'
 import { createTelegramChannel } from './channels/telegram.js'
-import { createMessagerSettings, resolveNamespace } from './settings.js'
+import { resolveNamespace } from './settings.js'
 import { mountConfigRoutes, type SettingsServiceLike } from './config-route.js'
 
 export const name = 'dsh-messager'
@@ -38,6 +38,24 @@ export const name = 'dsh-messager'
  * 且没有任何报错。这是 0.1.7 的硬契约。
  */
 export { Config } from './config.js'
+
+/**
+ * 通道构建结果的缓存签名：只覆盖**影响通道构造**的字段。
+ *
+ * `buildChannels` 会做图标存在性校验（同步 fs）等一次性工作，因此按签名缓存；
+ * verbosity 不影响构造（投递时才读），故不纳入。
+ * ⚠️ 新增通道/字段时必须同步补这里，否则改了配置不会重建通道。
+ */
+function channelSignature(config: ConfigShape): string {
+  return JSON.stringify([
+    config.system.enabled, config.system.icon,
+    config.feishu.enabled, config.feishu.webhookUrl, config.feishu.secret, config.feishu.timeoutMs,
+    config.wecom.enabled, config.wecom.webhookUrl, config.wecom.secret, config.wecom.timeoutMs,
+    config.discord.enabled, config.discord.webhookUrl, config.discord.timeoutMs,
+    config.dingtalk.enabled, config.dingtalk.webhookUrl, config.dingtalk.secret, config.dingtalk.timeoutMs,
+    config.telegram.enabled, config.telegram.botToken, config.telegram.chatId, config.telegram.timeoutMs,
+  ])
+}
 
 /** 按当前配置构建启用的通道。 */
 function buildChannels(config: ConfigShape): NotifyChannel[] {
@@ -125,39 +143,47 @@ function ensureSessionTitle(dispatcher: NotificationDispatcher, session: Session
  *   （`.volatile()` 的输出形态，见 src/config.ts），由 `resolveConfig` 取值。
  */
 export function apply(ctx: Context, config: RuntimeConfig) {
-  // 配置层：settings 服务可能晚于本插件挂载，必须用 ctx.inject 动态接入；
-  // 服务未就绪（如 headless profile）期间回退 Loader config 默认值。
+  /**
+   * 读取当前有效配置。
+   *
+   * ⚠️ 关键：**每次用时读取 volatile 引用**，绝不缓存配置快照。
+   *
+   * DSH 0.1.7 的 `settings/document-updated` 事件在 `describe()` 内部、
+   * `entry.fiber.config` 提交新值**之前**触发（见 settings/index.ts 的 describe()：
+   * 先 emit，后 `projectForm(form, plainConfig(entry.fiber.config))`）。因此在事件
+   * 回调里快照配置会读到**旧值**，而 `raw` 已更新 → 不会再有第二次事件 →
+   * 调度器永久停留在旧配置。这正是「已关闭系统通知却仍弹 SnoreToast」的根因。
+   *
+   * Loader 会**就地更新** volatile 引用（`Entry._commitVolatile`），所以这里
+   * 每次调用都能拿到最新值 —— 这也是 DSH 官方插件（如 pwsh-local）的惯例用法。
+   */
+  const readConfig = (): ConfigShape => resolveConfig(config)
+
+  /** 按签名缓存的通道构建（配置变化时自动重建）。 */
+  let channelCache: { signature: string; channels: NotifyChannel[] } | undefined
+  const channelsFor = (current: ConfigShape): NotifyChannel[] => {
+    const signature = channelSignature(current)
+    if (channelCache?.signature !== signature) {
+      channelCache = { signature, channels: buildChannels(current) }
+    }
+    return channelCache.channels
+  }
+
   const dispatcher = new NotificationDispatcher({
-    config: resolveConfig(config),
-    channels: buildChannels(resolveConfig(config)),
+    readConfig,
+    buildChannels: channelsFor,
     hooks: {
       logWarn: (message) => ctx.logger.warn(`[dsh-messager] ${message}`),
       logDebug: (message) => ctx.logger.debug(`[dsh-messager] ${message}`),
     },
   })
 
-  // 配置热更新：settings 就绪后建立配置句柄。
-  // 0.1.7 起命名空间 = 本插件在 profile 中的条目 id（由 loader 反查），
-  // schema 由 Loader 自动接管本模块导出的 Config；不再有 settings.register，
-  // 热更新改由 settings/document-updated 事件驱动（详见 src/settings.ts）。
-  // 句柄随注入 scope 自动卸载。
-  ctx.inject(['settings'], (settingsCtx) => {
-    const settingsService = settingsCtx.get('settings')
-    if (settingsService === undefined) return
-    const settings = createMessagerSettings(
-      settingsCtx,
-      settingsService as unknown as SettingsServiceLike,
-      resolveConfig(config),
-    )
-    dispatcher.reconfigure({ config: settings.get(), channels: buildChannels(settings.get()) })
-    settingsCtx.effect(() => settings.subscribe((next) => {
-      dispatcher.reconfigure({ config: next, channels: buildChannels(next) })
-    }), 'dsh-messager: settings subscription')
-  })
-
   // 配置读写路由（webServer 通道）：浏览器端经此读写本插件命名空间，
   // 不受 Web 设置白名单门控（dsh-market 同款「正门」）。仅 Web 环境挂载；
   // headless profile 无 webServer 服务时本 inject 不执行，不影响通知功能。
+  //
+  // 注意：本插件的**自身配置**不需要 settings 服务 —— Loader 已把 volatile 引用
+  // 交给我们并就地更新（见 readConfig）。settings 只用于这条浏览器读写路由。
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.inject(['settings'], (fullCtx) => {
       const settingsService = fullCtx.get('settings')

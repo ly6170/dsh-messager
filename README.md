@@ -13,12 +13,12 @@ DeepSeek Harness（DSH）**任务状态通知插件**：会话需要交互、任
 
 | 需求 | 实现 |
 | --- | --- |
-| 触发时机 | 需要交互（审批 `approval/asked`、提问/计划待审 `ask_user_question`、客户端 `uiSession.pendingInteractions`）、任务完成（`agent/status` running→idle 且仅根会话 + `turn/end` 原因）、任务出错（`agent/error`） |
+| 触发时机 | 需要交互（审批 `approval/asked`、提问/计划待审 `ask_user_question`、客户端 `uiSession.sessionStatus`）、任务完成（`agent/status` running→idle 且仅根会话 + `turn/end` 原因）、任务出错（`agent/error`） |
 | 推送路径 | 系统通知（node-notifier toast）、浏览器通知（Notification API）、飞书（interactive 卡片 + HMAC-SHA256 签名）、企业微信（markdown + 可选加签）、Discord（embed 卡片）、钉钉（actionCard + 可选加签）、Telegram（Bot API HTML 消息）；`NotifyChannel` 接口可扩展 |
 | 可配置 | 触发开关、各通道启停/verbosity/icon、去重冷却、标题前缀等，见[配置](#配置) |
 
-触发语义与 Web UI 状态圆点完全对齐：**橙点 = 需要交互**（`uiSession.pendingInteractions`），**绿点 = 任务完成**
-（`running→idle` 且非当前会话），**蓝点 = 运行中**（不通知）。
+触发语义与 Web UI 状态圆点完全对齐：**橙点 = 需要交互**（`uiSession.sessionStatus`），**绿点 = 任务完成**
+（`running→idle` 且不在主视图），**蓝点 = 运行中**（不通知）。
 
 ## 安装
 
@@ -42,7 +42,10 @@ dsh web   # 或 dsh --profile web
 
 > - `--patch` 不是安装步骤，而是可选的**开发调试**手段（见下节「本地开发」）：
 >   它只加载 host 端、不写 profile、仅对本次启动生效。装了 bundle 之后**请勿再同时
->   带 `--patch` 启动同一插件**（host 端会加载两份，settings 命名空间重复注册报错）。
+>   带 `--patch` 启动同一插件**（host 端会加载两份，同一事件重复通知）。
+>   ⚠️ 另外，经 `--patch` 装入的条目 id 会带 `include:` 前缀、且**不会进入
+>   `settings.describe()`**，因此 `--patch` 模式下设置页分区必然显示「不可用」——
+>   这是该调试路径的固有限制，验证设置页请走 `dsh plugin add` 安装。
 > - 以**源码方式运行 DSH**（从 deepseek-harness 仓库根目录）时，把上述 `dsh` 换成
 >   `pnpm dsh` 即可，命令与行为完全一致：`pnpm dsh plugin --profile web add …`、
 >   `pnpm dsh web`。profile 目录仍为 `$DSH_HOME/profiles/web`（`dsh web` 即
@@ -58,7 +61,7 @@ webServer 路由（`/dsh-messager/config`，同源校验 + 脱敏视图）直达
 `settings` 服务 —— **不依赖 DSH 的设置白名单，发行版（npx 安装）开箱即用**，
 无需任何补丁。
 
-> 配置与 `settings.yaml` 同源（同一命名空间）：任一处变更均实时生效。
+> 配置与 host 端**同源**（同一 settings 命名空间）：任一处变更均实时生效。
 
 ## 本地开发
 
@@ -82,21 +85,34 @@ webServer 路由（`/dsh-messager/config`，同源校验 + 脱敏视图）直达
 ## 配置
 
 配置优先级：**schema 默认值 → base（该插件行的 `config:`）→ 用户层（Web 设置页）**。
-host 端把 Loader config 注册为 settings 命名空间 `messager` 的 base 层，因此：
+
+> ⚠️ **DSH 0.1.7 的配置模型**（与旧版不同，务必知悉）：
+> - settings 命名空间 = 插件在 profile 中的**条目 id**（本包 `cordis.patch.yml`
+>   声明为 `messager`），**不是**插件自己注册的字符串；
+> - schema 由 Loader 直接读取**插件入口模块导出的 `Config`**，因此 `src/index.ts`
+>   必须 `export { Config }`——不导出则该条目被 `describe()` 静默跳过，设置页与
+>   配置路由一律显示「不可用」且**不报错**；
+> - 所有可编辑字段必须标记 `.volatile()`：DSH 用 volatile 门控写入，非 volatile
+>   路径会被 `settings.mutate` 拒绝，且无 volatile 字段时整个命名空间判为不可配置；
+> - 已**没有** `ctx.settings.register(...)` 这种 API；配置热更新改由
+>   `settings/document-updated` 事件驱动。
+
 - base 的写法按使用方式不同：dev 调试写在 `cordis.yml`（patch 覆盖层）里该行的
   `config:`；正式安装写在 **profile 的 `cordis.patch.yml`** 里按 `id: messager`
   覆盖该行，或直接改 bundle 包内的 `cordis.patch.yml`；
-- 用户层三处入口，**同源不冲突、任一处变更均实时生效**（host 端 `watch` 重建通道；
-  client 端经 `settings/document-updated` 失效重拉）：
+- 用户层两处入口，**同源不冲突、任一处变更均实时生效**（host 端订阅
+  `settings/document-updated` 重建通道；client 端同样据此失效重拉）：
   1. **设置页分区**：设置 →「通知&信使」分区（完整字段表单，所有环境可用）；
-  2. **设置文档**：直接编辑 `$DSH_HOME/settings.yaml` 的 `messager:` 段（完整字段，
-     含 dedup 节流等表单未展示的项）；
-  3. **RPC**：settings.describe / settings.mutate（host 侧可用；Web 端白名单不影响本插件
-     的分区，因为分区走插件自己的配置路由）。
+  2. **RPC**：settings.describe / settings.mutate（host 侧可用；Web 端白名单不影响
+     本插件的分区，因为分区走插件自己的配置路由）。
 
 > 配置读写链路：设置分区 → `GET/POST /dsh-messager/config`（webServer 路由，同源校验）
-> → host 端 `settings` 服务（describe 脱敏视图 / mutate 逐字段 ops）→ settings.yaml。
-> 写后 `settings/document-updated` 事件（DSH 内置转发）驱动前端刷新。
+> → host 端 `settings` 服务（describe 脱敏视图 / mutate 逐字段 ops）→ profile 的
+> `cordis.patch.yml`。写后 `settings/document-updated` 事件（DSH 内置转发）驱动前端刷新。
+>
+> 📌 DSH 0.1.7 已废弃 `$DSH_HOME/settings.yaml` 作为配置源：启动时若存在会被自动
+> 导入 profile 并**重命名为 `settings.yaml.imported`**。请改编辑 profile 的
+> `cordis.patch.yml`（或用设置页）。
 >
 > 🌐 **国际化**：分区菜单与表单文案随 DSH 设置的语言切换（中文 / English），
 > 字典注册在 `ctx.locale`（zh/en 键集一致，缺失键 fail loud 显示键名）。
@@ -151,9 +167,9 @@ host 端把 Loader config 注册为 settings 命名空间 `messager` 的 base �
 
 | 触发 | host 端（system/feishu/wecom/discord/dingtalk/telegram） | client 端（browser） |
 | --- | --- | --- |
-| 审批 | `session/event` `approval/asked` | `ctx.uiSession.pendingInteractions` 中 `kind==='approval'` 从无到有 |
-| 提问/计划待审 | `session/event` `tool/call`（`ask_user_question`） | `ctx.uiSession.pendingInteractions` 中 `kind==='question'/'plan-review'` 从无到有 |
-| 任务完成 | `agent/status` running→idle（仅根会话）＋`turn/end` 原因 | 摘要 `running:true→false` 且非当前会话 |
+| 审批 | `session/event` `approval/asked` | `ctx.uiSession.sessionStatus` 中 `pendingInteraction.kind==='approval'` 从无到有 |
+| 提问/计划待审 | `session/event` `tool/call`（`ask_user_question`） | `ctx.uiSession.sessionStatus` 中 `pendingInteraction.kind==='question'/'plan-review'` 从无到有 |
+| 任务完成 | `agent/status` running→idle（仅根会话）＋`turn/end` 原因 | 摘要 `running:true→false` 且 `retainedBy.mainView` 为空 |
 | 任务出错 | `agent/error` | -（host 端覆盖） |
 
 ## 通道扩展
@@ -181,14 +197,14 @@ dsh-messager/
 ├── assets/icon.png       # 默认通知图标
 ├── doc/plan/             # 规划存档（01 起编号）
 ├── src/
-│   ├── index.ts          # host apply：事件接线 + settings 注册 + 通道构建 + 路由挂载
-│   ├── config.ts         # Config schema（Loader config 与 settings 共用）
+│   ├── index.ts          # host apply：事件接线 + 通道构建 + 路由挂载（并导出 Config schema）
+│   ├── config.ts         # Config schema（全字段 .volatile()；Loader config 与 settings 共用）
 │   ├── config-shared.ts  # 配置路由的跨端共享类型（host/client 共用）
 │   ├── config-route.ts   # webServer 配置路由（GET 视图 / POST ops，同源校验）
 │   ├── signals.ts        # 事件 → Signal 提取（纯函数）
 │   ├── notify.ts         # 调度：过滤/冷却/防抖/限流 + NotifyChannel 接口
 │   ├── templates.ts      # verbosity 模板渲染（纯函数）
-│   ├── settings.ts       # settings 命名空间注册（base = Loader config）
+│   ├── settings.ts       # 条目 id（settings 命名空间）解析，供配置路由使用
 │   ├── channels/         # system（node-notifier）、feishu/wecom/discord/dingtalk/telegram（webhook/Bot API+签名）
 │   └── client/           # 浏览器端：sessions diff、Notification、设置分区、配置同步
 │       ├── index.ts      # 分区注册（动态 order）+ 浏览器通知 + 配置路由访问器
@@ -199,34 +215,39 @@ dsh-messager/
 │       ├── locales.ts    # zh/en 字典（ctx.locale 注册）
 │       ├── config.ts     # 浏览器通知的配置句柄（走配置路由）
 │       └── diff.ts       # 完成摘要 / 待交互状态 diff（纯函数）
-└── tests/                # vitest 单元测试（129 个）
+└── tests/                # vitest 单元测试（147 个）
 ```
 
 ## 测试
 
 ```sh
-pnpm test       # 129 个单元测试：信号提取/模板/调度/各通道签名与载荷/配置解析/client diff/配置路由/fetch scope/字典一致性/表单门控
+pnpm test       # 147 个单元测试：信号提取/模板/调度/各通道签名与载荷/配置解析与 volatile 契约/client diff/配置路由/fetch scope/字典一致性/表单门控
 pnpm typecheck  # host 端
 pnpm build      # host tsc + client 声明 + client bundle（lib/）
 ```
 
-## 版本兼容（dsh-messager 0.3.2 / DSH 0.1.7-alpha.1）
+> ⚠️ 测试**不会**投递真实系统通知：`vitest.config.ts` 用 `resolve.alias` 把
+> `node-notifier` 换成 no-op 桩（`tests/stubs/node-notifier.ts`）。系统通道的 schema
+> 默认值就是 `enabled: true`，不换桩的话 `pnpm test` 会真的弹 Windows toast。
 
-- **v0.3.2 仅支持 DSH `0.1.7-alpha.1`**；所有 `@deepseek-ai/dsh-*` peerDependencies
-  统一锁定该版本。
-- **这是破坏性更新**：DSH 0.1.7 调整了 settings 配置模型与 client API，旧版 DSH
-  不兼容。仍在使用旧版 DSH 的用户请勿升级到 dsh-messager v0.3.2；请继续使用
-  dsh-messager v0.3.1 / DSH 0.1.2-rc.1，或先升级 DSH 到 0.1.7-alpha.1。
+## 版本兼容（dsh-messager 0.3.3 / DSH 0.1.7-alpha.1）
+
+- **v0.3.3 仅支持 DSH `0.1.7-alpha.1`**；所有 `@deepseek-ai/dsh-*` peerDependencies
+  统一锁定该版本，不再兼容旧 RC 接口。
 - client 端适配新版拆分：会话列表来自 `dsh-api-session-controller`，交互状态来自
-  `dsh-client-ui-session` 的 `ctx.uiSession.pendingInteractions`，`ctx.slots` 由
+  `dsh-client-ui-session` 的 `ctx.uiSession.sessionStatus`，`ctx.slots` 由
   `dsh-client-ui-renderer` 提供；不再依赖已移除的 `dsh-client-runtime`。
-- 完成通知仍按会话摘要 `running: true → false` 且非当前会话触发；交互通知仅在
+- 完成通知仍按会话摘要 `running: true → false` 且不在主视图触发；交互通知仅在
   `approval` / `question` / `plan-review` 从无到有时触发，首次订阅只建立基线。
-- host 设置使用 profile 条目 id 作为命名空间（本包默认 `messager`）；配置读写继续走插件自有
-  webServer 路由 `/dsh-messager/config`。现有第三方通道配置无需迁移或重置。
-- DSH 0.1.7 的 schema 由 Loader 从插件入口导出的 `Config` 读取，所有可编辑字段均标记
-  `.volatile()`；配置热更新由 `settings/document-updated` 驱动。旧版 `settings.yaml`
-  配置文件会由 DSH 自动导入 profile 并重命名为 `settings.yaml.imported`。
+- host 设置使用 profile 条目 id 作为命名空间（本包为 `messager`）；配置读写继续走插件
+  自有 webServer 路由 `/dsh-messager/config`，现有 schema 与第三方通道配置无需迁移或重置。
+- **0.1.7 配置模型迁移**（v0.3.2）：移除已不存在的 `ctx.settings.register`；schema 改由
+  Loader 读取入口导出的 `Config`；全部可编辑字段标记 `.volatile()`；命名空间由
+  `ctx.fiber.entry.options.id` 动态解析（不再硬编码）。`@deepseek-ai/cordis` 升至
+  `^4.0.3`（4.0.2 不导出 `Volatile`），`schemastery` 对齐 `^3.18.3`（避免双实例）。
+- **v0.3.3**：host 调度器改为**投递时读取 volatile 引用**（不再缓存配置快照，也不再依赖
+  `settings/document-updated` 的时序），配置一改立即生效；client 端修掉「拉取失败静默开启
+  浏览器通知」与「浏览器通道忽略 `triggers.*`」两个缺陷，并在标签页恢复可见时补拉配置。
 
 ## 已知边界
 

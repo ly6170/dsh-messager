@@ -1,23 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { updateVolatile } from '@deepseek-ai/cosmokit'
 import { apply } from '../src/index.ts'
-import { resolveConfig } from '../src/config.ts'
-
-/**
- * 假 settings 服务：0.1.7 契约下命名空间 = profile 条目 id，
- * 插件不再「注册」schema，而是经 describe() 读取本条目（ns）的有效值。
- */
-function fakeSettingsService(value: unknown = {}, ns = 'messager') {
-  const describeCalls: Array<{ redactSecrets?: boolean } | undefined> = []
-  const service = {
-    writable: true,
-    describe(options?: { redactSecrets?: boolean }) {
-      describeCalls.push(options)
-      return [{ ns, value, revision: 0 }]
-    },
-  }
-  return { service, describeCalls }
-}
+import { Config } from '../src/config.ts'
+import { resolveNamespace } from '../src/settings.ts'
+import { delivered, resetDelivered } from './stubs/node-notifier.ts'
 
 /** 构造一个只含历史标题事件的假会话（模拟进程重启后恢复的会话：历史事件不重放）。 */
 function fakeSessionWithHistoricalTitle(id: string, title: string) {
@@ -31,20 +18,17 @@ function fakeSessionWithHistoricalTitle(id: string, title: string) {
   }
 }
 
-/** 装配插件 + 假 settings + 捕获飞书 webhook 请求。 */
+/** 装配插件 + 捕获飞书 webhook 请求。 */
 async function mountFeishuHarness() {
-  const config = resolveConfig({
+  // 配置由 Loader 经 apply 的第二个参数交给插件（volatile 形态），不再经 settings 读取。
+  const runtime = Config({
     system: { enabled: false },
     browser: { enabled: false },
     feishu: { enabled: true, webhookUrl: 'https://feishu.example/hook', verbosity: 'detailed' },
     dedup: { completedDebounceMs: 10 },
   })
   const ctx = new Context()
-  const { service } = fakeSettingsService(config)
-  ctx.provide('settings', service)
-  apply(ctx, {} as never)
-  // 等 settings inject 子 fiber 完成读取与通道重建（dispatcher 此时才持有飞书通道）
-  await new Promise<void>((resolve) => setTimeout(resolve, 50))
+  apply(ctx, runtime)
   const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ code: 0, msg: 'ok' }) }))
   vi.stubGlobal('fetch', fetchMock)
   return { ctx, fetchMock }
@@ -59,64 +43,104 @@ function capturedCardBody(fetchMock: ReturnType<typeof vi.fn>): string | undefin
   return body.card?.elements?.find(element => element.tag === 'div')?.text?.content
 }
 
-describe('host apply 的 settings 接线', () => {
-  it('settings 服务可用时按条目 id 读取 messager 命名空间（脱敏视图）', async () => {
+describe('host apply 的配置接线', () => {
+  it('配置来自 apply 的第二个参数（Loader 契约），不依赖 settings 服务', async () => {
+    const runtime = Config({
+      system: { enabled: false },
+      browser: { enabled: false },
+      feishu: { enabled: true, webhookUrl: 'https://feishu.example/hook', verbosity: 'detailed' },
+      dedup: { completedDebounceMs: 10 },
+    })
     const ctx = new Context()
-    const { service, describeCalls } = fakeSettingsService({ feishu: { enabled: true } })
-    ctx.provide('settings', service)
-
-    apply(ctx, {} as never)
-    // 等 inject 子 fiber 启动并完成读取
-    await new Promise<void>((resolve) => setTimeout(resolve, 100))
-
-    expect(describeCalls.length).toBeGreaterThan(0)
-    // 必须走脱敏读取：secret 字段的值永不进入 host 侧配置对象
-    expect(describeCalls[0]?.redactSecrets).toBe(true)
-  })
-
-  it('条目 id 由 fiber 解析（不硬编码 messager）', async () => {
-    const ctx = new Context()
-    // describe 只认 custom-entry-id；若插件硬编码 'messager' 就读不到 → 通道不建
-    let describeCount = 0
-    const custom = {
-      writable: true,
-      describe: () => {
-        describeCount += 1
-        return [{
-          ns: 'custom-entry-id',
-          value: {
-            feishu: { enabled: true, webhookUrl: 'https://feishu.example/hook' },
-            dedup: { completedDebounceMs: 10 },
-          },
-          revision: 0,
-        }]
-      },
-    }
-    ctx.provide('settings', custom)
-    // Loader 会在插件 fiber 上挂载所属条目；settings 命名空间取原始行 id
-    // （options.id），不是带 include: 前缀的复合 Entry.id
-    ;(ctx.fiber as unknown as { entry?: { options: { id: string } } }).entry = {
-      options: { id: 'custom-entry-id' },
-    }
+    // 刻意不 provide('settings')：自身配置不需要 settings 服务
+    apply(ctx, runtime)
 
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ code: 0, msg: 'ok' }) }))
     vi.stubGlobal('fetch', fetchMock)
-    apply(ctx, {} as never)
-    await new Promise<void>((resolve) => setTimeout(resolve, 50))
-
-    const agent = { id: 'session-ns', session: fakeSessionWithHistoricalTitle('session-ns', '标题') }
+    const agent = { id: 's-plain', session: fakeSessionWithHistoricalTitle('s-plain', '标题') }
     ctx.emit('agent/status', { agent, status: 'running' } as never)
     ctx.emit('agent/status', { agent, status: 'idle' } as never)
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
-    expect(describeCount).toBeGreaterThan(0)
     vi.unstubAllGlobals()
   })
 
-  it('settings 服务缺失时插件照常运行（回退默认配置，不抛错）', async () => {
+  it('volatile 引用被就地更新后立即生效：关闭通道后不再投递', async () => {
+    // 回归用例（SnoreToast 事故）：
+    // 用户关闭 system 通道后，调度器必须立刻不再使用它。
+    // 这里用 updateVolatile 复刻 Loader 提交 volatile 更新的方式（就地改引用）。
+    const runtime = Config({
+      system: { enabled: false },
+      browser: { enabled: false },
+      feishu: { enabled: true, webhookUrl: 'https://feishu.example/hook' },
+      dedup: { interactionCooldownMs: 0, completedDebounceMs: 10 },
+    })
     const ctx = new Context()
-    expect(() => apply(ctx, {} as never)).not.toThrow()
+    apply(ctx, runtime)
+
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ code: 0, msg: 'ok' }) }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const first = { id: 's-1', session: fakeSessionWithHistoricalTitle('s-1', '一') }
+    ctx.emit('agent/status', { agent: first, status: 'running' } as never)
+    ctx.emit('agent/status', { agent: first, status: 'idle' } as never)
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+    // 模拟 Loader 把新配置提交进运行中的 volatile 引用（不重挂载插件）
+    const updated = Config({ feishu: { enabled: false } })
+    updateVolatile(runtime.feishu.enabled, updated.feishu.enabled)
+    expect(runtime.feishu.enabled.get()).toBe(false)
+
+    // 换一个会话，避开冷却；此时飞书通道应已消失 → 不应再有新请求
+    const second = { id: 's-2', session: fakeSessionWithHistoricalTitle('s-2', '二') }
+    ctx.emit('agent/status', { agent: second, status: 'running' } as never)
+    ctx.emit('agent/status', { agent: second, status: 'idle' } as never)
+    await new Promise<void>((resolve) => setTimeout(resolve, 120))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    vi.unstubAllGlobals()
+  })
+
+  it('settings 服务缺失时插件照常运行（不抛错）', async () => {
+    const ctx = new Context()
+    expect(() => apply(ctx, Config({}))).not.toThrow()
     await new Promise<void>((resolve) => setTimeout(resolve, 50))
+  })
+
+  it('系统通道在测试中走 node-notifier 桩，绝不投递真实通知', async () => {
+    // 自检：证明 vitest 的 alias 桩确实生效。
+    // 若这条失败，说明桩没挂上 —— 那么所有测试都可能真的往开发机弹 toast。
+    resetDelivered()
+    const runtime = Config({
+      system: { enabled: true },
+      browser: { enabled: false },
+      feishu: { enabled: false },
+      dedup: { completedDebounceMs: 10 },
+    })
+    const ctx = new Context()
+    apply(ctx, runtime)
+
+    const agent = { id: 's-stub', session: fakeSessionWithHistoricalTitle('s-stub', '桩检查') }
+    ctx.emit('agent/status', { agent, status: 'running' } as never)
+    ctx.emit('agent/status', { agent, status: 'idle' } as never)
+
+    await vi.waitFor(() => {
+      expect(delivered.some(entry => entry.message === '会话：桩检查')).toBe(true)
+    })
+  })
+})
+
+describe('resolveNamespace（settings 命名空间 = profile 条目原始行 id）', () => {
+  it('沿 fiber 父链取 entry.options.id，而不是带 include: 前缀的复合 Entry.id', () => {
+    const ctx = new Context()
+    ;(ctx.fiber as unknown as { entry?: { options: { id: string } } }).entry = {
+      options: { id: 'custom-entry-id' },
+    }
+    expect(resolveNamespace(ctx)).toBe('custom-entry-id')
+  })
+
+  it('解析不出条目时退回 messager', () => {
+    const ctx = new Context()
+    expect(resolveNamespace(ctx)).toBe('messager')
   })
 })
 

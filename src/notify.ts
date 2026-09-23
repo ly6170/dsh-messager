@@ -1,6 +1,12 @@
 /**
  * 规则/调度层：过滤（triggers）、冷却、完成防抖、通道限流，
  * 并把 Signal 渲染后分发给启用的通道。通道失败只记日志，绝不抛出。
+ *
+ * ⚠️ 配置与通道都在**投递时**求值（`readConfig` / `buildChannels` 注入），
+ * 不缓存快照。原因见 src/index.ts 的 readConfig 说明：DSH 0.1.7 的
+ * `settings/document-updated` 事件可能在 `entry.fiber.config` 提交新值**之前**触发，
+ * 若在事件回调里快照配置，会永久停留在旧值（表现为「关了通知还弹」）。
+ * Loader 就地更新 volatile 引用，因此「用时读取」永远是最新的。
  */
 
 import type { Config, Verbosity } from './config.ts'
@@ -22,10 +28,12 @@ export interface DispatcherHooks {
   logDebug?(message: string): void
 }
 
-/** 通道配置更新（settings watch 回调时整体替换）。 */
-export interface DispatcherConfig {
-  config: Config
-  channels: NotifyChannel[]
+/** 调度器的配置/通道来源：每次投递时求值，保证取到 volatile 引用的最新值。 */
+export interface DispatcherSources {
+  /** 读取当前有效配置。 */
+  readConfig(): Config
+  /** 依据当前配置构建启用通道（实现方自行决定是否按签名缓存）。 */
+  buildChannels(config: Config): NotifyChannel[]
 }
 
 interface PendingCompleted {
@@ -41,8 +49,7 @@ interface PendingCompleted {
  * - 限流：每通道每分钟不超过 `perChannelPerMinute` 条。
  */
 export class NotificationDispatcher {
-  private config: Config
-  private readonly channels: NotifyChannel[]
+  private readonly sources: DispatcherSources
   private readonly hooks: DispatcherHooks
   private readonly now: () => number
 
@@ -57,17 +64,10 @@ export class NotificationDispatcher {
   /** channelId → 最近一分钟内的投递时间戳。 */
   private readonly channelWindows = new Map<string, number[]>()
 
-  constructor(options: DispatcherConfig & { hooks: DispatcherHooks; now?: () => number }) {
-    this.config = options.config
-    this.channels = options.channels
+  constructor(options: DispatcherSources & { hooks: DispatcherHooks; now?: () => number }) {
+    this.sources = { readConfig: options.readConfig, buildChannels: options.buildChannels }
     this.hooks = options.hooks
     this.now = options.now ?? Date.now
-  }
-
-  /** 配置热更新（settings watch）：替换配置与通道，保留标题/冷却等状态。 */
-  reconfigure(next: DispatcherConfig): void {
-    this.config = next.config
-    this.channels.splice(0, this.channels.length, ...next.channels)
   }
 
   /** 记录会话标题（session/title 事件）。 */
@@ -92,25 +92,26 @@ export class NotificationDispatcher {
 
   /** 信号入口：interaction/error 立即处理；completed 进入防抖。 */
   onSignal(signal: Signal): void {
-    if (!this.triggerEnabled(signal.kind)) {
+    const config = this.sources.readConfig()
+    if (!this.triggerEnabled(signal.kind, config)) {
       this.hooks.logDebug?.(`[dispatcher] trigger disabled: ${signal.kind} ${signal.sessionId}`)
       return
     }
     if (signal.kind === 'completed') {
-      this.debounceCompleted(signal)
+      this.debounceCompleted(signal, config)
       return
     }
     this.dispatchIfAllowed(signal)
   }
 
-  private triggerEnabled(kind: TriggerKind): boolean {
-    if (kind === 'interaction') return this.config.triggers.interaction
-    if (kind === 'completed') return this.config.triggers.completed
-    return this.config.triggers.error
+  private triggerEnabled(kind: TriggerKind, config: Config): boolean {
+    if (kind === 'interaction') return config.triggers.interaction
+    if (kind === 'completed') return config.triggers.completed
+    return config.triggers.error
   }
 
   /** 完成信号防抖：窗口内只保留最新信号，窗口结束才投递。 */
-  private debounceCompleted(signal: Signal & { kind: 'completed' }): void {
+  private debounceCompleted(signal: Signal & { kind: 'completed' }, config: Config): void {
     const sessionId = signal.sessionId
     const merged: Signal & { kind: 'completed' } = {
       ...signal,
@@ -120,10 +121,10 @@ export class NotificationDispatcher {
     if (existing !== undefined) {
       existing.signal = merged
       clearTimeout(existing.timer)
-      existing.timer = setTimeout(() => this.flushCompleted(sessionId), this.config.dedup.completedDebounceMs)
+      existing.timer = setTimeout(() => this.flushCompleted(sessionId), config.dedup.completedDebounceMs)
       return
     }
-    const timer = setTimeout(() => this.flushCompleted(sessionId), this.config.dedup.completedDebounceMs)
+    const timer = setTimeout(() => this.flushCompleted(sessionId), config.dedup.completedDebounceMs)
     this.pendingCompleted.set(sessionId, { signal: merged, timer })
   }
 
@@ -137,25 +138,26 @@ export class NotificationDispatcher {
 
   /** 冷却检查 + 逐通道渲染 + 分发。 */
   private dispatchIfAllowed(signal: Signal): void {
+    const config = this.sources.readConfig()
     const now = this.now()
     const key = `${signal.sessionId}:${signal.kind}`
     const last = this.cooldowns.get(key)
-    if (last !== undefined && now - last < this.config.dedup.interactionCooldownMs) {
+    if (last !== undefined && now - last < config.dedup.interactionCooldownMs) {
       this.hooks.logDebug?.(`[dispatcher] cooldown: skip ${key}`)
       return
     }
     let dispatched = false
-    for (const channel of this.channels) {
-      if (!this.allowChannel(channel.id, now)) {
+    for (const channel of this.sources.buildChannels(config)) {
+      if (!this.allowChannel(channel.id, now, config)) {
         this.hooks.logDebug?.(`[dispatcher] rate limited: ${channel.id}`)
         continue
       }
       dispatched = true
       const payload = renderPayload({
         signal,
-        config: this.config,
+        config,
         sessionTitle: this.titles.get(signal.sessionId),
-        verbosity: this.verbosityFor(channel.id),
+        verbosity: this.verbosityFor(channel.id, config),
       })
       void channel.send(payload).catch((error: unknown) => {
         this.hooks.logWarn(`channel "${channel.id}" failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -165,10 +167,10 @@ export class NotificationDispatcher {
   }
 
   /** 每通道每分钟限流。 */
-  private allowChannel(channelId: string, now: number): boolean {
+  private allowChannel(channelId: string, now: number, config: Config): boolean {
     const windowStart = now - 60_000
     const window = (this.channelWindows.get(channelId) ?? []).filter(timestamp => timestamp >= windowStart)
-    if (window.length >= this.config.dedup.perChannelPerMinute) {
+    if (window.length >= config.dedup.perChannelPerMinute) {
       this.channelWindows.set(channelId, window)
       return false
     }
@@ -178,14 +180,14 @@ export class NotificationDispatcher {
   }
 
   /** 通道 verbosity：各通道独立配置；未知通道取 normal。 */
-  private verbosityFor(channelId: string): Verbosity {
+  private verbosityFor(channelId: string, config: Config): Verbosity {
     const byId: Record<string, Verbosity> = {
-      system: this.config.system.verbosity,
-      feishu: this.config.feishu.verbosity,
-      wecom: this.config.wecom.verbosity,
-      discord: this.config.discord.verbosity,
-      dingtalk: this.config.dingtalk.verbosity,
-      telegram: this.config.telegram.verbosity,
+      system: config.system.verbosity,
+      feishu: config.feishu.verbosity,
+      wecom: config.wecom.verbosity,
+      discord: config.discord.verbosity,
+      dingtalk: config.dingtalk.verbosity,
+      telegram: config.telegram.verbosity,
     }
     return byId[channelId] ?? 'normal'
   }

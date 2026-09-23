@@ -65,6 +65,8 @@ export interface MessagerCardState {
   writable: boolean
   /** 是否存在待保存的编辑。 */
   dirty: boolean
+  /** 未保存项数（保存计划里的 ops 条数；0 表示无变更）。 */
+  dirtyCount: number
   /** 是否有非法草稿。 */
   invalid: boolean
   saving: boolean
@@ -140,8 +142,14 @@ interface StagedEdit {
   clear: boolean
 }
 
-interface PlannedWrite {
-  run?: () => Promise<boolean>
+/** 保存计划：待写 ops 与执行函数。 */
+interface SavePlan {
+  /** 待写入的字段操作（数量即「未保存项数」）。 */
+  ops: ScopeWriteOp[]
+  /** 执行保存；`undefined` 表示草稿非法，阻塞保存。 */
+  run: (() => Promise<boolean>) | undefined
+  /** 存在非法草稿（数字/选项格式错误），阻塞整个保存。 */
+  invalid: boolean
 }
 
 /** 把草稿解析为组内值；undefined 表示非法（阻止保存）。 */
@@ -254,8 +262,11 @@ export class MessagerCardController {
       status: snapshot.status,
       mode: snapshot.mode ?? '',
       writable: snapshot.writable,
-      dirty: plan.length > 0,
-      invalid: plan.some(item => item.run === undefined),
+      // 「有未保存的修改」= 有可写 ops，或存在非法草稿。
+      // 非法草稿必须也算 dirty，否则「放弃修改」按钮会被禁用，用户无法丢弃错误输入。
+      dirty: plan.ops.length > 0 || plan.invalid,
+      dirtyCount: plan.ops.length,
+      invalid: plan.invalid,
       saving: this.saving,
       failed: this.failed,
       fields,
@@ -311,7 +322,7 @@ export class MessagerCardController {
    * 逐字段而非整组合并：密钥字段只有被显式填写/重置时才生成 op，
    * 其余字段互不牵连（mutate 的 set 是整组替换，合并写会抹掉未回显的密钥）。
    */
-  private plan(): PlannedWrite[] {
+  private plan(): SavePlan {
     const ops: ScopeWriteOp[] = []
     for (const [key, staged] of this.staged) {
       const [group, field] = key.split('.') as [string, string]
@@ -326,19 +337,21 @@ export class MessagerCardController {
         continue
       }
       const desired = parseDraft(spec, staged.text)
-      if (desired === undefined) return [{ run: undefined }] // 任一非法草稿阻塞整个保存
+      if (desired === undefined) return { ops: [], run: undefined, invalid: true } // 任一非法草稿阻塞整个保存
       // 密钥无法与已存值比较（write-only），总是写（幂等）；其余字段无实际变化时跳过
       if (spec.secret !== true && deepEqualJson(desired, this.effectiveValue(spec))) continue
       ops.push({ op: 'set', path: [group, field], value: desired })
     }
-    if (ops.length === 0) return []
+    if (ops.length === 0) return { ops: [], run: undefined, invalid: false }
     const scope = this.scope
-    return [{
+    return {
+      ops,
+      invalid: false,
       run: async () => {
         const ok = await scope.writeOps(ops)
         return ok
       },
-    }]
+    }
   }
 
   /**
@@ -362,15 +375,11 @@ export class MessagerCardController {
 
   private async save(): Promise<void> {
     const plan = this.plan()
-    if (plan.length === 0 || this.saving || plan.some(item => item.run === undefined)) return
+    if (plan.ops.length === 0 || this.saving || plan.run === undefined) return
     this.saving = true
     this.failed = false
     this.invalidate()
-    let landed = true
-    for (const item of plan) {
-      if (item.run === undefined) continue
-      landed = (await item.run()) && landed
-    }
+    const landed = await plan.run()
     if (landed) this.staged.clear()
     this.saving = false
     this.failed = !landed

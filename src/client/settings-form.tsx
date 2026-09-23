@@ -113,9 +113,37 @@ const FOOTER_STYLE: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'flex-end',
   gap: 8,
-  padding: '12px 0 4px',
+  padding: '12px 0',
   borderTop: '1px solid var(--dsw-alias-border-l2)',
   marginTop: 12,
+  // 粘在滚动容器（设置面板的 .options）底部：表单有 ~40 个字段，
+  // 操作栏若随内容滚走，用户切完开关根本看不到「保存」。
+  // 背景取面板同色（SettingsRoot.module.css 的 .panel = bg-layer-2）以免透视。
+  position: 'sticky',
+  bottom: 0,
+  zIndex: 1,
+  background: 'var(--dsw-alias-bg-layer-2)',
+}
+
+/** 顶部「有未保存的修改」提示条（滚到顶部时可见，与底部粘性操作栏互补）。 */
+const UNSAVED_BAR_STYLE: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 12,
+  margin: '12px 0 0',
+  padding: '8px 12px',
+  border: '1px solid var(--dsw-alias-border-l2)',
+  borderRadius: 8,
+  background: 'var(--dsw-alias-bg-module-platform)',
+}
+
+const UNSAVED_TEXT_STYLE: React.CSSProperties = {
+  margin: 0,
+  fontSize: 13,
+  lineHeight: 1.5,
+  fontWeight: 500,
+  color: 'var(--dsw-alias-label-primary)',
 }
 
 const FAILED_STYLE: React.CSSProperties = {
@@ -312,6 +340,22 @@ export function MessagerSettingsForm({ state, actions, t }: {
   return (
     <>
       {!state.writable && <p style={READ_ONLY_STYLE} role="status">{t('status.readOnly')}</p>}
+      {state.dirty && (
+        <div style={UNSAVED_BAR_STYLE} role="status">
+          <p style={UNSAVED_TEXT_STYLE}>
+            {state.invalid ? t('status.invalidInput') : t('status.unsaved')}
+            {!state.invalid && state.dirtyCount > 0 ? ` (${state.dirtyCount})` : ''}
+          </p>
+          <button
+            type="button"
+            style={{ ...SAVE_STYLE, ...(state.invalid || state.saving ? { opacity: 0.4, cursor: 'default' } : {}) }}
+            disabled={state.invalid || state.saving}
+            onClick={actions.save}
+          >
+            {state.saving ? t('action.saving') : t('action.save')}
+          </button>
+        </div>
+      )}
       {groups.map(group => (
         <div key={group}>
           <p style={GROUP_HEADING_STYLE}>{t(GROUP_TITLE_KEYS[group] ?? group)}</p>
@@ -338,6 +382,12 @@ export function MessagerSettingsForm({ state, actions, t }: {
       <div style={FOOTER_STYLE}>
         {state.failed && <p style={FAILED_STYLE} role="status">{t('status.saveFailed')}</p>}
         {state.invalid && !state.failed && <p style={FAILED_STYLE} role="status">{t('status.invalidInput')}</p>}
+        {state.dirty && !state.failed && !state.invalid && (
+          <p style={{ ...UNSAVED_TEXT_STYLE, flex: 1 }} role="status">
+            {t('status.unsaved')}
+            {state.dirtyCount > 0 ? ` (${state.dirtyCount})` : ''}
+          </p>
+        )}
         <button
           type="button"
           style={{ ...DISCARD_STYLE, ...((!state.dirty && !state.failed) || state.saving ? { opacity: 0.4, cursor: 'default' } : {}) }}

@@ -26,7 +26,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { Verbosity } from '../config.js'
 import type { Config } from '../config.js'
 import { ClientConfig, type ClientConfigHandle } from './config.js'
-import { diffPendingInteractions, diffSessionSummaries, type ClientNotice } from './diff.js'
+import { diffPendingInteractions, diffSessionSummaries, triggerAllows, type ClientNotice } from './diff.js'
 import { CARD_FIELDS, MessagerCardController } from './card-controller.js'
 import { createFetchScope, type ConfigFetcher } from './fetch-scope.js'
 import { MessagerSection } from './section.jsx'
@@ -77,6 +77,7 @@ class BrowserNotifier {
     if (config.browser.onlyWhenHidden && document.visibilityState !== 'hidden') return
 
     for (const notice of notices) {
+      if (!triggerAllows(notice, config.triggers)) continue
       if (!this.allow(notice, config)) continue
       this.show(notice, config)
     }
@@ -177,6 +178,20 @@ export function apply(ctx: Context): void {
     void fetchScope.refresh()
   })
   ctx.effect(() => () => offRemote?.(), 'dsh-messager: settings invalidation')
+
+  // 标签页重新可见时补拉一次配置。
+  // 后台标签页可能错过 settings/document-updated（浏览器挂起标签、WebSocket 被断），
+  // 而 refresh 没有重试，配置会长期停留在旧值 —— 曾表现为「已关闭通知仍弹出」。
+  const onVisibilityChange = (): void => {
+    if (document.visibilityState !== 'visible') return
+    void config.refresh()
+    void fetchScope.refresh()
+  }
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  ctx.effect(
+    () => () => document.removeEventListener('visibilitychange', onVisibilityChange),
+    'dsh-messager: visibility refresh',
+  )
 
   const notifier = new BrowserNotifier(config)
   ctx.effect(() => () => notifier.dispose(), 'dsh-messager: browser notifier')

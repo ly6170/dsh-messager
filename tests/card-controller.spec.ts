@@ -184,6 +184,36 @@ describe('MessagerCardController', () => {
     expect(snapshot().dirty).toBe(false)
   })
 
+  it('dirtyCount 反映未保存项数：多字段累加、改回原值不计入、保存后归零', async () => {
+    const scope = fakeScope({ value: baseConfig })
+    const { face, snapshot } = makeController(scope)
+    expect(snapshot().dirtyCount).toBe(0)
+
+    face.edit('triggers', 'interaction', 'false')
+    expect(snapshot().dirtyCount).toBe(1)
+
+    face.edit('message', 'titlePrefix', '[X]')
+    expect(snapshot().dirtyCount).toBe(2)
+
+    // 改回原值 → 该字段不再产生 op
+    face.edit('triggers', 'interaction', 'true')
+    expect(snapshot().dirtyCount).toBe(1)
+
+    face.save()
+    await vi.waitFor(() => expect(snapshot().saving).toBe(false))
+    expect(snapshot().dirtyCount).toBe(0)
+    expect(snapshot().dirty).toBe(false)
+  })
+
+  it('非法草稿：invalid 为 true 且不产生 ops（dirtyCount 归零）', async () => {
+    const scope = fakeScope({ value: { ...baseConfig, feishu: { ...baseConfig.feishu, enabled: true } } })
+    const { face, snapshot } = makeController(scope)
+    face.edit('feishu', 'timeoutMs', 'abc')
+    const state = snapshot()
+    expect(state.invalid).toBe(true)
+    expect(state.dirtyCount).toBe(0)
+  })
+
   it('非法数字草稿阻止保存', async () => {
     // feishu 开启后 timeoutMs 才参与保存计划（门控字段）
     const scope = fakeScope({ value: { ...baseConfig, feishu: { ...baseConfig.feishu, enabled: true } } })

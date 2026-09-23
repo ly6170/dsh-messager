@@ -52,6 +52,19 @@ export function clientInteractionKindOf(kind: string): ClientInteractionKind | u
   }
 }
 
+/**
+ * 触发开关门控：与 host 端 `triggers` 语义对齐。
+ *
+ * 此前浏览器通道完全没有这层判断，导致「关闭某类触发」对浏览器通知无效 ——
+ * 用户关掉后仍会收到（Windows 把浏览器通知渲染成系统 toast，难以分辨来源）。
+ */
+export function triggerAllows(
+  notice: ClientNotice,
+  triggers: { interaction: boolean; completed: boolean },
+): boolean {
+  return notice.kind === 'interaction' ? triggers.interaction : triggers.completed
+}
+
 /** 对比两次 uiSession 统一状态快照。 */
 export function diffPendingInteractions(
   previous: SessionStatusSnapshot,
