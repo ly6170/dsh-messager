@@ -230,10 +230,31 @@ pnpm build      # host tsc + client 声明 + client bundle（lib/）
 > `node-notifier` 换成 no-op 桩（`tests/stubs/node-notifier.ts`）。系统通道的 schema
 > 默认值就是 `enabled: true`，不换桩的话 `pnpm test` 会真的弹 Windows toast。
 
-## 版本兼容（dsh-messager 0.3.3 / DSH 0.1.7-alpha.1）
+## 版本兼容（dsh-messager 0.3.4 / DSH 0.1.7-rc.1）
 
-- **v0.3.3 仅支持 DSH `0.1.7-alpha.1`**；所有 `@deepseek-ai/dsh-*` peerDependencies
-  统一锁定该版本，不再兼容旧 RC 接口。
+- **v0.3.4 支持 DSH `0.1.7-rc.1`**；所有 `@deepseek-ai/dsh-*` peerDependencies 统一写
+  `^0.1.7-rc.1` **范围**（覆盖整条 0.1.x 线），**不再精确锁单个版本**。
+- 该兼容范围不包含 DSH `0.1.7-alpha.1` 及更早版本。仍在使用这些版本的用户，请先将 DSH
+  升级到 `0.1.7-rc.1` 或兼容的后续 `0.1.x` 版本，再升级插件；此版本无需迁移插件 API 或重置通知配置。
+- ⚠️ **为什么必须用范围**：DSH `0.1.7-rc.1` 起，启动时会读 **bundle 自己的**
+  `peerDependencies` 做兼容性判定，不通过就**整个 bundle 层被跳过** —— 插件表现为完全
+  不加载（配置路由 404、设置页「通知&信使」分区消失、通知全无），只在启动 stderr 留一行
+  `dsh: skipping profile bundle "dsh-messager"`。v0.3.3 把 peer 精确锁在 `0.1.7-alpha.1`，
+  rc.1 一发布即 47 条 peer 全数判为不兼容而整体停摆。
+- ⚠️ **非 `dsh-` 前缀的配套包**（`cordis` / `cosmokit` / `cordis-plugin-group` /
+  `cordis-plugin-include` / `cordis-plugin-loader` / `schemastery`）不受该门禁管辖，但必须
+  与 DSH 出货版本对齐，否则产生**双实例**：症状是 `pnpm build` 的声明产出报
+  `TS2883: The inferred type of 'Config' cannot be named without a reference to 'Schema'`
+  （而 `pnpm typecheck` 却通过，极易误判）。其中 `@deepseek-ai/cordis-plugin-group` 是 rc.1
+  `dsh-app-boot` 的**必需 peer**，必须显式声明，否则 `pnpm peers check` 报 unmet peer。
+- **应急放行**（不改插件、临时让它启动起来，仅救急）：门禁支持按「精确插件@版本 × 精确 DSH
+  版本」授权，写入 `$DSH_HOME/profiles/<profile>/compatibility.json`：
+
+  ```sh
+  dsh plugin --profile web allow-version <name>@<version> --dsh-version <exact-dsh> --accept-risk
+  ```
+
+  插件每次升版都需重新授权，属救急而非修法 —— 正解仍是把 peer 写成范围。
 - client 端适配新版拆分：会话列表来自 `dsh-api-session-controller`，交互状态来自
   `dsh-client-ui-session` 的 `ctx.uiSession.sessionStatus`，`ctx.slots` 由
   `dsh-client-ui-renderer` 提供；不再依赖已移除的 `dsh-client-runtime`。
@@ -248,6 +269,13 @@ pnpm build      # host tsc + client 声明 + client bundle（lib/）
 - **v0.3.3**：host 调度器改为**投递时读取 volatile 引用**（不再缓存配置快照，也不再依赖
   `settings/document-updated` 的时序），配置一改立即生效；client 端修掉「拉取失败静默开启
   浏览器通知」与「浏览器通道忽略 `triggers.*`」两个缺陷，并在标签页恢复可见时补拉配置。
+- **v0.3.4**：适配 DSH `0.1.7-rc.1`。修复 DSH 新增 bundle 兼容性门禁导致的整体停摆
+  （peer 由精确锁改为 `^0.1.7-rc.1` 范围）；顺带把 `schemastery` / `cordis` /
+  `cordis-plugin-include` / `cordis-plugin-loader` / `cosmokit` 对齐到 rc.1 出货版本以消除
+  双实例，并补上 rc.1 `dsh-app-boot` 新增的必需 peer `@deepseek-ai/cordis-plugin-group`。
+  **宿主端 API 无破坏性变更**：`dsh-settings` / `dsh-host-webserver` / `dsh-client-ui-session` /
+  `dsh-client-ui-renderer` / `dsh-client-ui-settings` / `dsh-client-ui-slots` 的源码在
+  alpha.1 → rc.1 之间一行未改，插件逻辑与配置 schema 均无需迁移。
 
 ## 已知边界
 

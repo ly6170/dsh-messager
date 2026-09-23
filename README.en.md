@@ -173,17 +173,17 @@ dsh-messager/
 ## Testing
 
 ``sh
-pnpm test       # 126 unit tests: signal extraction/templates/dispatch/channel payloads & signatures/config parsing/client diff/config route/fetch scope/locale consistency/form gating
+pnpm test       # 147 unit tests: signal extraction/templates/dispatch/channel payloads & signatures/config parsing/client diff/config route/fetch scope/locale consistency/form gating
 pnpm typecheck  # host side
 pnpm build      # host tsc + client declarations + client bundle (lib/)
 ``
 
-## Version compatibility (dsh-messager 0.3.3 / DSH 0.1.7-alpha.1)
+## Version compatibility (dsh-messager 0.3.4 / DSH 0.1.7-rc.1)
 
-- **v0.3.3 supports only DSH `0.1.7-alpha.1`**; all `@deepseek-ai/dsh-*` peerDependencies are pinned to that version.
-- **This is a breaking update.** DSH 0.1.7 changed its settings configuration model and client APIs, so older DSH versions are incompatible. If you still use an older DSH version, do not upgrade to dsh-messager v0.3.3. Stay on dsh-messager v0.3.1 / DSH 0.1.2-rc.1, or upgrade DSH to 0.1.7-alpha.1 first.
-- Compatibility notes:
-  - The removed `dsh-client-runtime` is no longer used. Client session lists use `dsh-api-session-controller`, interaction state uses `dsh-client-ui-session`, and slot services use `dsh-client-ui-renderer`.
+- **v0.3.4 supports DSH `0.1.7-rc.1` and compatible later `0.1.x` releases.** All `@deepseek-ai/dsh-*` peer dependencies use the range `^0.1.7-rc.1`; the range excludes DSH `0.1.7-alpha.1` and earlier versions. Upgrade DSH to `0.1.7-rc.1` or a compatible later `0.1.x` release before upgrading this plugin.
+- DSH `0.1.7-rc.1` checks a bundle's own peer dependencies and skips incompatible bundles. v0.3.4 replaces the old exact alpha.1 pins with version ranges, aligns companion Cordis and Schemastery dependencies, and adds the required `@deepseek-ai/cordis-plugin-group` peer.
+- The relevant host APIs did not change from DSH alpha.1 to rc.1. This release requires no plugin API migration or notification configuration reset.
+- The removed `dsh-client-runtime` is no longer used. Client session lists use `dsh-api-session-controller`, interaction state uses `dsh-client-ui-session`, and slot services use `dsh-client-ui-renderer`.
 - The settings namespace is the profile entry ID (`messager` by default). Configuration remains available through the plugin's own `/dsh-messager/config` route. DSH 0.1.7 loads the schema from the entry module's exported `Config`, requires editable fields to be `.volatile()`, and broadcasts changes through `settings/document-updated`.
 - DSH 0.1.7 imports an existing legacy `settings.yaml` into the profile at startup and renames it to `settings.yaml.imported`.
 - v0.3.3 reads the live volatile configuration when each notification is delivered, keeps browser notifications disabled until the host configuration loads, honors trigger filters in the browser, and refreshes configuration when a background tab becomes visible.
