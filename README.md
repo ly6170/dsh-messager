@@ -210,18 +210,23 @@ pnpm typecheck  # host 端
 pnpm build      # host tsc + client 声明 + client bundle（lib/）
 ```
 
-## 版本兼容（dsh-messager 0.3.1 / DSH 0.1.2-rc.1）
+## 版本兼容（dsh-messager 0.3.2 / DSH 0.1.7-alpha.1）
 
-- **v0.3.1 仅支持 DSH `0.1.2-rc.1`**；所有 `@deepseek-ai/dsh-*` peerDependencies
-  统一锁定该版本，不再兼容旧 RC 接口。
-- 本版本仅更新 DSH peer 依赖版本；通知逻辑、配置格式和现有通道行为不变。
+- **v0.3.2 仅支持 DSH `0.1.7-alpha.1`**；所有 `@deepseek-ai/dsh-*` peerDependencies
+  统一锁定该版本。
+- **这是破坏性更新**：DSH 0.1.7 调整了 settings 配置模型与 client API，旧版 DSH
+  不兼容。仍在使用旧版 DSH 的用户请勿升级到 dsh-messager v0.3.2；请继续使用
+  dsh-messager v0.3.1 / DSH 0.1.2-rc.1，或先升级 DSH 到 0.1.7-alpha.1。
 - client 端适配新版拆分：会话列表来自 `dsh-api-session-controller`，交互状态来自
   `dsh-client-ui-session` 的 `ctx.uiSession.pendingInteractions`，`ctx.slots` 由
   `dsh-client-ui-renderer` 提供；不再依赖已移除的 `dsh-client-runtime`。
 - 完成通知仍按会话摘要 `running: true → false` 且非当前会话触发；交互通知仅在
   `approval` / `question` / `plan-review` 从无到有时触发，首次订阅只建立基线。
-- host 设置使用字符串命名空间 `messager`；配置读写继续走插件自有 webServer 路由
-  `/dsh-messager/config`，现有 schema、settings 数据和第三方通道配置无需迁移或重置。
+- host 设置使用 profile 条目 id 作为命名空间（本包默认 `messager`）；配置读写继续走插件自有
+  webServer 路由 `/dsh-messager/config`。现有第三方通道配置无需迁移或重置。
+- DSH 0.1.7 的 schema 由 Loader 从插件入口导出的 `Config` 读取，所有可编辑字段均标记
+  `.volatile()`；配置热更新由 `settings/document-updated` 驱动。旧版 `settings.yaml`
+  配置文件会由 DSH 自动导入 profile 并重命名为 `settings.yaml.imported`。
 
 ## 已知边界
 

@@ -14,7 +14,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { resolveConfig, type Config } from './config.js'
+import { resolveConfig, type Config as ConfigShape, type RuntimeConfig } from './config.js'
 import { interactionSignalOf, errorMessageOf, turnEndReasonOf } from './signals.js'
 import { NotificationDispatcher, type NotifyChannel } from './notify.js'
 import { createSystemChannel } from './channels/system.js'
@@ -23,13 +23,24 @@ import { createWecomChannel } from './channels/wecom.js'
 import { createDiscordChannel } from './channels/discord.js'
 import { createDingtalkChannel } from './channels/dingtalk.js'
 import { createTelegramChannel } from './channels/telegram.js'
-import { registerMessagerSettings } from './settings.js'
+import { createMessagerSettings, resolveNamespace } from './settings.js'
 import { mountConfigRoutes, type SettingsServiceLike } from './config-route.js'
 
 export const name = 'dsh-messager'
 
+/**
+ * ⚠️ 必须从**入口模块**导出 `Config` schema。
+ *
+ * DSH 0.1.7 由 Loader 直接读取插件模块的 `Config` 导出作为 settings 表单 schema
+ * （`entry.fiber.runtime.Config`，见 packages/settings/settings/src/index.ts 的
+ * `schema(entry)`）。schema 只在 src/config.ts 定义、入口不导出的话，
+ * `describe()` 会直接跳过本条目 —— 表现为设置页/配置路由一律 `unavailable`，
+ * 且没有任何报错。这是 0.1.7 的硬契约。
+ */
+export { Config } from './config.js'
+
 /** 按当前配置构建启用的通道。 */
-function buildChannels(config: Config): NotifyChannel[] {
+function buildChannels(config: ConfigShape): NotifyChannel[] {
   const channels: NotifyChannel[] = []
   if (config.system.enabled) {
     channels.push(createSystemChannel({
@@ -106,7 +117,14 @@ function ensureSessionTitle(dispatcher: NotificationDispatcher, session: Session
   dispatcher.noteSessionTitle(sessionId, title)
 }
 
-export function apply(ctx: Context, config: Config) {
+/**
+ * 插件入口。
+ *
+ * @param ctx - 插件上下文。
+ * @param config - Loader 传入的运行时配置：可编辑字段是 volatile 引用
+ *   （`.volatile()` 的输出形态，见 src/config.ts），由 `resolveConfig` 取值。
+ */
+export function apply(ctx: Context, config: RuntimeConfig) {
   // 配置层：settings 服务可能晚于本插件挂载，必须用 ctx.inject 动态接入；
   // 服务未就绪（如 headless profile）期间回退 Loader config 默认值。
   const dispatcher = new NotificationDispatcher({
@@ -118,18 +136,26 @@ export function apply(ctx: Context, config: Config) {
     },
   })
 
-  // 配置热更新：settings 就绪后注册命名空间（base = Loader config），
-  // 用户层/设置文档变更 → watch 重建通道；命名空间随注入 scope 自动卸载。
+  // 配置热更新：settings 就绪后建立配置句柄。
+  // 0.1.7 起命名空间 = 本插件在 profile 中的条目 id（由 loader 反查），
+  // schema 由 Loader 自动接管本模块导出的 Config；不再有 settings.register，
+  // 热更新改由 settings/document-updated 事件驱动（详见 src/settings.ts）。
+  // 句柄随注入 scope 自动卸载。
   ctx.inject(['settings'], (settingsCtx) => {
-    const settings = registerMessagerSettings(settingsCtx, config)
-    const effective = settings.get()
-    dispatcher.reconfigure({ config: effective, channels: buildChannels(effective) })
-    settingsCtx.effect(() => settings.watch((next) => {
+    const settingsService = settingsCtx.get('settings')
+    if (settingsService === undefined) return
+    const settings = createMessagerSettings(
+      settingsCtx,
+      settingsService as unknown as SettingsServiceLike,
+      resolveConfig(config),
+    )
+    dispatcher.reconfigure({ config: settings.get(), channels: buildChannels(settings.get()) })
+    settingsCtx.effect(() => settings.subscribe((next) => {
       dispatcher.reconfigure({ config: next, channels: buildChannels(next) })
-    }), 'dsh-messager: settings watch')
+    }), 'dsh-messager: settings subscription')
   })
 
-  // 配置读写路由（webServer 通道）：浏览器端经此读写 messager 命名空间，
+  // 配置读写路由（webServer 通道）：浏览器端经此读写本插件命名空间，
   // 不受 Web 设置白名单门控（dsh-market 同款「正门」）。仅 Web 环境挂载；
   // headless profile 无 webServer 服务时本 inject 不执行，不影响通知功能。
   ctx.inject(['webServer'], (webCtx) => {
@@ -139,6 +165,7 @@ export function apply(ctx: Context, config: Config) {
       const disposeRoutes = mountConfigRoutes(
         fullCtx.webServer,
         settingsService as unknown as SettingsServiceLike,
+        resolveNamespace(fullCtx),
       )
       fullCtx.effect(() => disposeRoutes, 'dsh-messager: config routes')
     })

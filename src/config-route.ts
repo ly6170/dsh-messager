@@ -17,9 +17,17 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { SettingsPathOp } from '@deepseek-ai/dsh-settings'
 import type { ConfigView, ConfigWriteBody } from './config-shared.js'
+import { FALLBACK_ENTRY_ID } from './settings.js'
 
-/** 命名空间（与 host 注册一致）。 */
-export const CONFIG_NAMESPACE = 'messager' as const
+/**
+ * 命名空间（= 本插件在 profile 中的条目 id）。
+ *
+ * ⚠️ 0.1.7 起 settings 命名空间就是 profile 条目 id，**不是**固定字符串。
+ * 不同装载方式（bundle 的 cordis.patch.yml / dev 的 cordis.yml / marketplace）
+ * 可能给出不同的 id，因此默认值只作兜底，真实值由调用方经
+ * `resolveNamespace(ctx)` 反查后传入。
+ */
+export const CONFIG_NAMESPACE = FALLBACK_ENTRY_ID
 
 export type { ConfigView, ConfigWriteBody } from './config-shared.js'
 
@@ -44,8 +52,11 @@ export interface WebServerLike {
 // ---- 纯逻辑（可单测） ----
 
 /** 把 settings 描述符映射为 client 视图；命名空间缺失 → unavailable。 */
-export function configViewOf(settings: SettingsServiceLike): ConfigView {
-  const descriptor = settings.describe({ redactSecrets: true }).find(candidate => candidate.ns === CONFIG_NAMESPACE)
+export function configViewOf(
+  settings: SettingsServiceLike,
+  namespace: string = CONFIG_NAMESPACE,
+): ConfigView {
+  const descriptor = settings.describe({ redactSecrets: true }).find(candidate => candidate.ns === namespace)
   if (descriptor === undefined) {
     return { status: 'unavailable', value: undefined, user: undefined, base: undefined, writable: settings.writable, mode: 'host' }
   }
@@ -131,14 +142,15 @@ function readBody(request: IncomingMessage, limit = 64 * 1024): Promise<string> 
   })
 }
 
-function handleGet(settings: SettingsServiceLike, res: ServerResponse): void {
-  sendJson(res, 200, configViewOf(settings))
+function handleGet(settings: SettingsServiceLike, res: ServerResponse, namespace: string): void {
+  sendJson(res, 200, configViewOf(settings, namespace))
 }
 
 async function handlePost(
   settings: SettingsServiceLike,
   request: IncomingMessage,
   res: ServerResponse,
+  namespace: string,
 ): Promise<void> {
   if (!sameOrigin(request, true)) {
     sendJson(res, 403, { ok: false, error: 'untrusted origin' })
@@ -157,7 +169,7 @@ async function handlePost(
     return
   }
   try {
-    await settings.mutate(CONFIG_NAMESPACE, body.ops as SettingsPathOp[], body.expectedRevision)
+    await settings.mutate(namespace, body.ops as SettingsPathOp[], body.expectedRevision)
     sendJson(res, 200, { ok: true })
   } catch (error) {
     sendJson(res, 409, {
@@ -169,20 +181,27 @@ async function handlePost(
 
 /**
  * 挂载配置路由（webServer 服务可用时调用）。
+ * @param webServer - webServer 服务（窄接口）。
+ * @param settings - settings 服务（窄接口）。
+ * @param namespace - 本插件在 profile 中的条目 id（settings 命名空间）。
  * @returns 卸载函数。
  */
-export function mountConfigRoutes(webServer: WebServerLike, settings: SettingsServiceLike): () => void {
+export function mountConfigRoutes(
+  webServer: WebServerLike,
+  settings: SettingsServiceLike,
+  namespace: string = CONFIG_NAMESPACE,
+): () => void {
   const routes: WebRoute[] = [
     {
       kind: 'exact',
       path: '/dsh-messager/config',
       handler: (request, response) => {
         if (request.method === 'GET') {
-          handleGet(settings, response)
+          handleGet(settings, response, namespace)
           return
         }
         if (request.method === 'POST') {
-          return handlePost(settings, request, response)
+          return handlePost(settings, request, response, namespace)
         }
         response.writeHead(405, { allow: 'GET, POST' })
         response.end()

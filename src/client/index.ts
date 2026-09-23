@@ -18,7 +18,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-import type { SessionPendingInteractionSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 // 类型合并：ctx.locale（dsh-client-locale）与 settings.section 槽位声明（ui-settings）
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -57,13 +57,13 @@ class BrowserNotifier {
 
   /** 列表快照变化 → 通知。 */
   onListChange(previous: SessionListState, next: SessionListState): void {
-    this.onNotices(diffSessionSummaries(previous.byId, next.byId, next.current))
+    this.onNotices(diffSessionSummaries(previous.byId, next.byId))
   }
 
-  /** 待交互快照变化 → 通知。 */
+  /** 待交互状态变化 → 通知。 */
   onPendingChange(
-    previous: SessionPendingInteractionSnapshot,
-    next: SessionPendingInteractionSnapshot,
+    previous: SessionStatusSnapshot,
+    next: SessionStatusSnapshot,
     sessions: SessionListState,
   ): void {
     this.onNotices(diffPendingInteractions(previous, next, sessions.byId))
@@ -190,15 +190,14 @@ export function apply(ctx: Context): void {
   })
   ctx.effect(() => () => offList(), 'dsh-messager: sessions subscription')
 
-  // 审批/提问/计划待审已从 SessionSummary 拆到 uiSession 独立状态流。
   // 当前快照只作为基线，不补发插件加载前已经存在的交互。
-  let previousPending = ctx.uiSession.pendingInteractions.getSnapshot()
-  const offPending = ctx.uiSession.pendingInteractions.subscribe(() => {
-    const next = ctx.uiSession.pendingInteractions.getSnapshot()
-    notifier.onPendingChange(previousPending, next, ctx.sessions.list.getSnapshot())
-    previousPending = next
+  let previousStatus = ctx.uiSession.sessionStatus.getSnapshot()
+  const offStatus = ctx.uiSession.sessionStatus.subscribe(() => {
+    const next = ctx.uiSession.sessionStatus.getSnapshot()
+    notifier.onPendingChange(previousStatus, next, ctx.sessions.list.getSnapshot())
+    previousStatus = next
   })
-  ctx.effect(() => () => offPending(), 'dsh-messager: pending interactions subscription')
+  ctx.effect(() => () => offStatus(), 'dsh-messager: session status subscription')
 
   // 设置页分区「通知&信使」：注册到 settings.section。
   // 数据经 webServer 配置路由读写（不受白名单门控），控制器与表单复用
