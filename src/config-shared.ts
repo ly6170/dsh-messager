@@ -3,7 +3,7 @@
  * Node/浏览器专属模块）。
  */
 
-/** 配置路由路径（挂在 DSH webServer 上，同源访问）。 */
+/** 配置路由路径（挂在 DSH webServer 上；访问经宿主鉴权，见 src/config-route.ts）。 */
 export const CONFIG_PATH = '/dsh-messager/config'
 
 /** client ScopeLike 快照同构的配置视图。 */

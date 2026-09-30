@@ -7,20 +7,22 @@ const payload: NotificationPayload = {
   sessionId: 's1',
   title: '任务完成',
   body: '会话：修 bug',
-  url: 'http://127.0.0.1:3080',
 }
 
 describe('buildDiscordPayload', () => {
-  it('构建 embed：username/标题/正文/链接/颜色', () => {
+  it('构建 embed：username/标题/正文/颜色', () => {
     const message = buildDiscordPayload(payload)
     expect(message.username).toBe('DSH')
     expect(message.embeds).toHaveLength(1)
     expect(message.embeds[0]).toMatchObject({
       title: '任务完成',
       description: '会话：修 bug',
-      url: 'http://127.0.0.1:3080',
       color: 0x2ECC71,
     })
+  })
+
+  it('不带链接（v0.3.6 起第三方推送不含跳转链接）', () => {
+    expect(buildDiscordPayload(payload).embeds[0]).not.toHaveProperty('url')
   })
 
   it('空正文时省略 description 字段', () => {

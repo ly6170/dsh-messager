@@ -41,6 +41,23 @@ export interface CardFieldSpec {
   secret?: boolean
   /** 门控开关：开关关闭时该字段不可见且保存计划跳过（如第三方通道的子配置）。 */
   hiddenUnless?: FieldHiddenUnless
+  /**
+   * 桌面版（DSH Desktop）下隐藏：该字段在此环境「没必要打开」，开了反而重复提醒。
+   * 仅当**用户层没写过该组**时隐藏；用户显式设置过则照常显示，便于他改回来。
+   * 判定见 visibleFields()。
+   *
+   * ⚠️ **当前没有任何字段标记它**：v0.3.6 真机验证发现「隐藏」会连唯一的兜底路径
+   * （host 的 system 通道）一起藏掉 —— 渲染端 toast 被系统丢弃时用户将无路可走，
+   * 故桌面版改为「照常显示 + 一句说明」。机制保留备用。
+   */
+  desktopHidden?: true
+  /**
+   * 桌面版专用文案键。桌面版里「浏览器通知」实际由**应用本体**投递成系统通知，
+   * 沿用浏览器文案会误导；有该键时桌面版优先用它（见 labelKeyFor）。
+   */
+  desktopLabel?: string
+  /** 桌面版专用 hint 键（与 desktopLabel 同理）。 */
+  desktopHint?: string
 }
 
 /** 字段渲染状态。 */
@@ -93,6 +110,8 @@ export interface MessagerCardFace {
   discard(): void
   /** 翻译函数（键 → 当前语言文案）；未接入 locale 时原样返回键。 */
   t(key: string): string
+  /** 是否运行在桌面版窗口：分区据此显示「某些开关已隐藏」的说明。 */
+  desktop: boolean
 }
 
 /** 一条嵌套路径写操作（与 settings.mutate 的 SettingsPathOpView 同构）。 */
@@ -135,6 +154,43 @@ export function isFieldGated(
   const gate = spec.hiddenUnless
   if (gate === undefined) return false
   return fields[fieldKey(gate.group, gate.field)]?.text !== 'true'
+}
+
+/** 用户层是否写过该组（哪怕写的是空对象）。 */
+function userHasGroup(user: unknown, group: string): boolean {
+  return typeof user === 'object' && user !== null && Object.hasOwn(user as Record<string, unknown>, group)
+}
+
+/**
+ * 计算当前环境下**可见**的字段清单（纯函数，可单测）。
+ *
+ * 标记了 `desktopHidden` 的字段在桌面版会隐藏（用户层写过该组时除外）。
+ * 📌 当前 CARD_FIELDS 里**没有**这样的字段 —— v0.3.6 实测发现渲染端 toast 可能被系统丢弃
+ * （Windows 未登记应用），隐藏 host 通道开关会让用户无兜底可用，故改为「显示 + 说明」。
+ * 机制保留：将来若有「开了只会重复」的字段，标记即可。
+ */
+export function visibleFields(
+  fields: readonly CardFieldSpec[],
+  options: { desktop: boolean; user?: unknown },
+): CardFieldSpec[] {
+  if (!options.desktop) return [...fields]
+  return fields.filter(spec => spec.desktopHidden !== true || userHasGroup(options.user, spec.group))
+}
+
+/**
+ * 字段的渲染文案键：桌面版有专用文案时优先。
+ *
+ * 用途：桌面版里 `browser` 通道的产物是**应用原生通知**（Windows toast / macOS
+ * 通知中心，署名是应用本体），不是「浏览器通知」，沿用浏览器文案会误导用户。
+ */
+export function labelKeyFor(spec: CardFieldSpec, desktop: boolean): string {
+  return desktop && spec.desktopLabel !== undefined ? spec.desktopLabel : spec.label
+}
+
+/** 字段的 hint 键（桌面版优先 desktopHint）；无 hint 返回 undefined。 */
+export function hintKeyFor(spec: CardFieldSpec, desktop: boolean): string | undefined {
+  if (desktop && spec.desktopHint !== undefined) return spec.desktopHint
+  return spec.hint
 }
 
 interface StagedEdit {
@@ -183,11 +239,16 @@ export class MessagerCardController {
   private saving = false
   private failed = false
   private cache: MessagerCardState | null = null
+  /** 是否运行在桌面版窗口（决定 desktopHidden 字段是否隐藏）。 */
+  private readonly desktop: boolean
 
   constructor(
     private readonly scope: ScopeLike,
     private readonly fields: readonly CardFieldSpec[],
+    /** 运行环境：桌面版窗口下隐藏「没必要打开」的字段（见 visibleFields）。 */
+    options: { desktop?: boolean } = {},
   ) {
+    this.desktop = options.desktop === true
     scope.subscribe(() => this.invalidate())
   }
 
@@ -221,6 +282,7 @@ export class MessagerCardController {
       },
       // 默认透传键（组件未接入 locale 时 fail loud）；client/index.ts 组装真实 t
       t: (key: string) => key,
+      desktop: this.desktop,
     }
   }
 
@@ -238,7 +300,7 @@ export class MessagerCardController {
     const snapshot = this.scope.getSnapshot()
     const available = snapshot.status === 'ready'
     const fields: Record<string, CardFieldState> = {}
-    for (const spec of this.fields) {
+    for (const spec of this.visibleSpecs()) {
       const key = fieldKey(spec.group, spec.field)
       const staged = this.staged.get(key)
       const effective = this.effectiveValue(spec)
@@ -277,6 +339,17 @@ export class MessagerCardController {
     const group = this.groupValue(spec.group)
     if (group === undefined) return undefined
     return group[spec.field]
+  }
+
+  /** 当前环境下可见的字段（桌面版隐藏 system 组等，见 visibleFields）。 */
+  private visibleSpecs(): readonly CardFieldSpec[] {
+    return visibleFields(this.fields, { desktop: this.desktop, user: this.scope.getSnapshot().user })
+  }
+
+  /** 单个字段在当前环境下是否可见（同一批 spec 对象，恒等比较即可）。 */
+  private isVisible(spec: CardFieldSpec): boolean {
+    if (spec.desktopHidden !== true) return true
+    return this.visibleSpecs().some(candidate => candidate === spec)
   }
 
   private groupValue(group: string): Record<string, unknown> | undefined {
@@ -327,6 +400,7 @@ export class MessagerCardController {
     for (const [key, staged] of this.staged) {
       const [group, field] = key.split('.') as [string, string]
       const spec = this.spec(group, field)
+      if (!this.isVisible(spec)) continue // 桌面版隐藏字段：草稿不参与保存
       if (this.gatedOff(spec)) continue // 门控关闭：隐藏字段的草稿不参与保存
       if (spec.secret === true && staged.text.trim() === '' && !staged.clear) continue // 留空不修改
       if (staged.clear) {
@@ -419,6 +493,10 @@ export const CARD_FIELDS: readonly CardFieldSpec[] = [
   { group: 'triggers', field: 'completed', kind: 'toggle', label: 'field.triggers.completed' },
   { group: 'triggers', field: 'error', kind: 'toggle', label: 'field.triggers.error' },
   // 系统通知：enabled 为门控开关，关闭时隐藏子配置
+  // ⚠️ 不随桌面版隐藏：桌面版的原生通知由窗口渲染端投递，多数情况下够用（故默认关闭，
+  // 避免同一事件弹两次）；但实测存在渲染端 toast 被系统丢弃的环境（Windows 未登记本应用），
+  // 那时 host 通道是唯一能显示的路径 —— 藏掉开关等于把唯一的救命绳藏起来。
+  // 桌面版分区会在这一组上方显示一句说明（hint.desktopFallback）。
   { group: 'system', field: 'enabled', kind: 'toggle', label: 'field.system.enabled' },
   {
     group: 'system', field: 'verbosity', kind: 'select', label: 'field.system.verbosity',
@@ -430,10 +508,15 @@ export const CARD_FIELDS: readonly CardFieldSpec[] = [
     hiddenUnless: { group: 'system', field: 'enabled' },
   },
   // 浏览器通知：enabled 为门控开关，关闭时隐藏子配置
-  { group: 'browser', field: 'enabled', kind: 'toggle', label: 'field.browser.enabled' },
+  // ⚠️ 桌面版文案不同（desktopLabel）：那里由应用本体投递成系统通知，不叫"浏览器通知"。
+  {
+    group: 'browser', field: 'enabled', kind: 'toggle', label: 'field.browser.enabled',
+    desktopLabel: 'field.browser.enabled.desktop',
+  },
   {
     group: 'browser', field: 'onlyWhenHidden', kind: 'toggle', label: 'field.browser.onlyWhenHidden',
     hiddenUnless: { group: 'browser', field: 'enabled' },
+    desktopLabel: 'field.browser.onlyWhenHidden.desktop',
   },
   {
     group: 'browser', field: 'verbosity', kind: 'select', label: 'field.browser.verbosity',
@@ -542,5 +625,4 @@ export const CARD_FIELDS: readonly CardFieldSpec[] = [
   // 消息内容
   { group: 'message', field: 'titlePrefix', kind: 'text', label: 'field.message.titlePrefix', hint: 'hint.message.titlePrefix' },
   { group: 'message', field: 'includeSessionTitle', kind: 'toggle', label: 'field.message.includeSessionTitle' },
-  { group: 'message', field: 'guiUrl', kind: 'text', label: 'field.message.guiUrl' },
 ]

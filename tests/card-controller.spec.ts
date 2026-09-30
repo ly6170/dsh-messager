@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  CARD_FIELDS, MessagerCardController, deepEqualJson, isFieldGated,
-  type ScopeLike, type ScopeWriteOp,
+  CARD_FIELDS, MessagerCardController, deepEqualJson, hintKeyFor, isFieldGated, labelKeyFor, visibleFields,
+  type CardFieldSpec, type ScopeLike, type ScopeWriteOp,
 } from '../src/client/card-controller.ts'
 
 /** 服务端语义：嵌套 set/unset，set 沿路径替换（与 DSH applyPathOp 同构）。 */
@@ -126,8 +126,8 @@ function fakeScope(initial: {
 }
 
 /** 控制器 + 注入面快照助手。 */
-function makeController(scope: ScopeLike) {
-  const controller = new MessagerCardController(scope, CARD_FIELDS)
+function makeController(scope: ScopeLike, options: { desktop?: boolean } = {}) {
+  const controller = new MessagerCardController(scope, CARD_FIELDS, options)
   const face = controller.inject()
   const snapshot = () => face.hooks.messagerCard.getSnapshot()
   return { controller, face, snapshot }
@@ -142,7 +142,7 @@ const baseConfig = {
   discord: { enabled: false, timeoutMs: 5000, verbosity: 'normal' },
   dingtalk: { enabled: false, timeoutMs: 5000, verbosity: 'normal' },
   telegram: { enabled: false, timeoutMs: 5000, verbosity: 'normal' },
-  message: { includeSessionTitle: true, guiUrl: 'http://127.0.0.1:3080' },
+  message: { includeSessionTitle: true },
 }
 
 describe('MessagerCardController', () => {
@@ -242,7 +242,7 @@ describe('MessagerCardController', () => {
     await vi.waitFor(() => expect(snapshot().saving).toBe(false))
     const value = scope.state().value as { message: Record<string, unknown> }
     expect(Object.hasOwn(value.message, 'titlePrefix')).toBe(false) // 重置 = 移除该键
-    expect(value.message.guiUrl).toBe('http://127.0.0.1:3080')
+    expect(value.message.includeSessionTitle).toBe(true) // 同组其它字段不受影响
     expect(Object.hasOwn(scope.state().user as Record<string, unknown>, 'message')).toBe(true)
     expect(scope.state().user.message).toEqual({})
   })
@@ -439,5 +439,100 @@ describe('deepEqualJson', () => {
     expect(deepEqualJson({ a: 1 }, { a: 1, b: 2 })).toBe(false)
     expect(deepEqualJson(null, null)).toBe(true)
     expect(deepEqualJson(1, 1)).toBe(true)
+  })
+})
+
+describe('visibleFields（桌面版隐藏机制，通用）', () => {
+  // 用合成字段清单测机制本身：当前 CARD_FIELDS 里没有任何字段标记 desktopHidden
+  // （v0.3.6 实测发现渲染端 toast 可能被系统丢弃，隐藏 host 通道开关会让用户失去
+  // 唯一兜底路径，故改为「照常显示 + 一句说明」）。
+  const fields: CardFieldSpec[] = [
+    { group: 'a', field: 'enabled', kind: 'toggle', label: 'field.a.enabled' },
+    { group: 'system', field: 'enabled', kind: 'toggle', label: 'field.system.enabled', desktopHidden: true },
+  ]
+
+  it('非桌面（web / 浏览器）→ 字段清单原样返回', () => {
+    expect(visibleFields(fields, { desktop: false })).toHaveLength(fields.length)
+    expect(visibleFields(fields, { desktop: false, user: {} })).toHaveLength(fields.length)
+  })
+
+  it('桌面 + 用户层没写过该组 → 隐藏标记字段，其余组不受影响', () => {
+    const visible = visibleFields(fields, { desktop: true, user: {} })
+    expect(visible.some(spec => spec.group === 'system')).toBe(false)
+    expect(visible).toHaveLength(1)
+    expect(visible[0]!.group).toBe('a')
+  })
+
+  it('桌面 + 用户层写过该组 → 照常显示（用户显式意愿优先，且他能改回来）', () => {
+    expect(visibleFields(fields, { desktop: true, user: { system: { enabled: true } } })).toHaveLength(2)
+  })
+
+  it('用户层整体缺失（读不到）时按「没写过」处理', () => {
+    expect(visibleFields(fields, { desktop: true }).some(spec => spec.group === 'system')).toBe(false)
+    expect(visibleFields(fields, { desktop: true, user: null }).some(spec => spec.group === 'system')).toBe(false)
+  })
+
+  it('CARD_FIELDS 当前不含 desktopHidden 字段（别再把兜底开关藏起来）', () => {
+    expect(CARD_FIELDS.filter(spec => spec.desktopHidden === true)).toEqual([])
+  })
+})
+
+describe('控制器：桌面版字段可见性', () => {
+  it('桌面模式：system 组照常可见、可编辑（不隐藏，作为渲染端失效时的兜底）', () => {
+    const scope = fakeScope({ value: baseConfig })
+    const { face, snapshot } = makeController(scope, { desktop: true })
+    const state = snapshot()
+    expect(state.fields['system.enabled']).toBeDefined()
+    expect(state.fields['system.verbosity']).toBeDefined()
+    expect(state.fields['system.icon']).toBeDefined()
+    expect(state.fields['triggers.interaction']).toBeDefined()
+    expect(state.fields['browser.enabled']).toBeDefined()
+    face.edit('system', 'enabled', 'false')
+    expect(snapshot().dirtyCount).toBe(1)
+  })
+
+  it('web 模式不受影响：字段齐全、可编辑', () => {
+    const scope = fakeScope({ value: baseConfig })
+    const { face, snapshot } = makeController(scope)
+    expect(snapshot().fields['system.enabled']).toBeDefined()
+    face.edit('system', 'enabled', 'false')
+    expect(snapshot().dirtyCount).toBe(1)
+  })
+
+  it('注入面暴露 desktop 标志（分区据此显示说明文案）', () => {
+    expect(makeController(fakeScope({ value: baseConfig }), { desktop: true }).face.desktop).toBe(true)
+    expect(makeController(fakeScope({ value: baseConfig })).face.desktop).toBe(false)
+  })
+})
+
+describe('labelKeyFor / hintKeyFor（桌面版文案变体）', () => {
+  const browserEnabled = CARD_FIELDS.find(spec => spec.group === 'browser' && spec.field === 'enabled')!
+
+  it('web：沿用浏览器文案', () => {
+    expect(labelKeyFor(browserEnabled, false)).toBe('field.browser.enabled')
+  })
+
+  it('桌面：改用桌面文案（「浏览器通知」→「应用通知」）', () => {
+    expect(labelKeyFor(browserEnabled, true)).toBe('field.browser.enabled.desktop')
+  })
+
+  it('browser 组的两个开关都带桌面文案（否则桌面版仍显示"浏览器通知"）', () => {
+    for (const field of ['enabled', 'onlyWhenHidden']) {
+      const spec = CARD_FIELDS.find(candidate => candidate.group === 'browser' && candidate.field === field)
+      expect(spec?.desktopLabel, `browser.${field} 缺 desktopLabel`).toBeDefined()
+    }
+  })
+
+  it('没有桌面变体的字段两种环境一致（如飞书开关）', () => {
+    const feishu = CARD_FIELDS.find(spec => spec.group === 'feishu' && spec.field === 'enabled')!
+    expect(labelKeyFor(feishu, true)).toBe(labelKeyFor(feishu, false))
+    expect(hintKeyFor(feishu, true)).toBe(hintKeyFor(feishu, false))
+  })
+
+  it('hint：无 hint 返回 undefined；桌面变体优先于普通 hint', () => {
+    expect(hintKeyFor(browserEnabled, false)).toBeUndefined()
+    expect(hintKeyFor({ ...browserEnabled, hint: 'h' }, false)).toBe('h')
+    expect(hintKeyFor({ ...browserEnabled, hint: 'h', desktopHint: 'd' }, true)).toBe('d')
+    expect(hintKeyFor({ ...browserEnabled, desktopHint: 'd' }, false)).toBeUndefined()
   })
 })

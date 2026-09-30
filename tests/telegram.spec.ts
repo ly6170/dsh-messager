@@ -7,7 +7,6 @@ const payload: NotificationPayload = {
   sessionId: 's1',
   title: '任务完成',
   body: '会话：修 bug',
-  url: 'http://127.0.0.1:3080',
 }
 
 describe('escapeHtml', () => {
@@ -17,12 +16,12 @@ describe('escapeHtml', () => {
 })
 
 describe('buildTelegramPayload', () => {
-  it('构建 sendMessage：HTML 标题 + 正文 + 链接，chat_id 透传', () => {
+  it('构建 sendMessage：HTML 标题 + 正文，chat_id 透传', () => {
     const message = buildTelegramPayload(payload, '123456')
     expect(message.chat_id).toBe('123456')
     expect(message.parse_mode).toBe('HTML')
     expect(message.link_preview_options).toEqual({ is_disabled: true })
-    expect(message.text).toBe('<b>任务完成</b>\n会话：修 bug\n<a href="http://127.0.0.1:3080">打开 DSH</a>')
+    expect(message.text).toBe('<b>任务完成</b>\n会话：修 bug')
   })
 
   it('错误消息中的特殊字符被转义（防 parse_mode 400）', () => {
@@ -33,7 +32,13 @@ describe('buildTelegramPayload', () => {
 
   it('空正文时省略正文行', () => {
     const message = buildTelegramPayload({ ...payload, body: '' }, '123456')
-    expect(message.text).toBe('<b>任务完成</b>\n<a href="http://127.0.0.1:3080">打开 DSH</a>')
+    expect(message.text).toBe('<b>任务完成</b>')
+  })
+
+  it('不带任何链接（v0.3.6 起第三方推送不含跳转链接）', () => {
+    const message = buildTelegramPayload(payload, '123456')
+    expect(message.text).not.toContain('<a ')
+    expect(message.text).not.toMatch(/https?:\/\//)
   })
 
   it('text 截断到 4096（兜底守卫）', () => {

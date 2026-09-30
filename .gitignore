@@ -10,6 +10,9 @@ lib/
 coverage/
 .vitest/
 
+# 临时调查/脚本产物（不进发布物，也不该被提交）
+tmp/
+
 # 日志
 *.log
 npm-debug.log*
@@ -27,3 +30,4 @@ Thumbs.db
 .vscode/
 .agent-teams/
 *.tgz
+release-notes/

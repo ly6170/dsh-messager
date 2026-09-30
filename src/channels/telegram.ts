@@ -40,7 +40,6 @@ export interface TelegramSendPayload {
 export function buildTelegramPayload(payload: NotificationPayload, chatId: string): TelegramSendPayload {
   const lines = [`<b>${escapeHtml(payload.title)}</b>`]
   if (payload.body !== '') lines.push(escapeHtml(payload.body))
-  lines.push(`<a href="${escapeHtml(payload.url)}">打开 DSH</a>`)
   return {
     chat_id: chatId,
     text: lines.join('\n').slice(0, 4096),

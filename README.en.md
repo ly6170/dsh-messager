@@ -6,7 +6,7 @@ A task notification plugin for DeepSeek Harness (DSH). Get system, browser, Feis
 
 ## Compatibility
 
-**v0.3.5 supports DSH `0.2.0-rc.1` and compatible later 0.2.x releases.** Keep the matching older plugin version for DSH 0.1.x. Upgrade DSH before installing this version; existing notification settings need no migration.
+**v0.3.6 supports DSH `0.2.0-rc.1` and compatible later 0.2.x releases.** Keep the matching older plugin version for DSH 0.1.x. Upgrade DSH before installing this version; existing notification settings need no migration.
 
 ## Install
 
@@ -34,14 +34,15 @@ dsh web
 
 ## Use
 
-Open **Settings → Messenger** (「通知&信使」), choose the events and channels you want, enter any webhook or bot credentials, and save. System and browser notifications are enabled by default; third-party channels are disabled by default. Browser notifications require site permission.
+Open **Settings → Messenger** (「通知&信使」), choose the events and channels you want, enter any webhook or bot credentials, and save. Browser notifications are enabled by default. System notifications default to off in the desktop app and on elsewhere; third-party channels default to off. Browser or app notifications require the corresponding permission.
 
-Notifications cover interactions, root-session task completion, and task errors. Running status does not trigger a notification. Saved settings take effect immediately.
+Notifications cover interactions, root-session task completion, and task errors. Running status does not trigger a notification. In the desktop app, losing window focus can also trigger completion notices for the open session. Push messages no longer include links. Saved settings take effect immediately.
 
 ## Troubleshooting
 
 - **Settings section missing or config route returns 404:** Check the active `web` profile, restart DSH, and verify DSH/plugin version compatibility.
 - **No browser notification:** Check site permission. By default, notifications appear only when the page is hidden or unfocused.
+- **No desktop notification:** Check app notification permission. If the system drops the app's notifications, enable the **System notifications** channel in settings as a fallback.
 - **Settings unavailable with `--patch`:** That development mode loads only the host side. Install with `dsh plugin add` to use the settings page.
 
-[v0.3.5 release notes](RELEASE_NOTES_v0.3.5.md) · [中文](README.md) · [MIT License](LICENSE)
+[中文](README.md) · [MIT License](LICENSE)

@@ -7,7 +7,7 @@
  */
 
 import type { ReactNode } from 'react'
-import { CARD_FIELDS, isFieldGated } from './card-controller.js'
+import { CARD_FIELDS, hintKeyFor, isFieldGated, labelKeyFor } from './card-controller.js'
 import type { CardFieldSpec, MessagerCardActions, MessagerCardState } from './card-controller.js'
 
 /** 分组标题的翻译键（键见 locales.ts；导出供字典一致性测试）。 */
@@ -21,6 +21,14 @@ export const GROUP_TITLE_KEYS: Record<string, string> = {
   dingtalk: 'group.dingtalk',
   telegram: 'group.telegram',
   message: 'group.message',
+}
+
+/**
+ * 桌面版专用分组标题（当前只有 browser）：桌面版里那条通道产出的是**应用原生通知**，
+ * 不是"浏览器通知"。键集必须与 locales.ts 一致（字典一致性测试覆盖）。
+ */
+export const GROUP_TITLE_KEYS_DESKTOP: Record<string, string> = {
+  browser: 'group.browser.desktop',
 }
 
 // ---- DSH 主题变量（fields.module.css 同源） ----
@@ -233,15 +241,18 @@ function Switch({ id, checked, disabled, onChange }: {
 // ---- 字段行（ValueField 同款布局） ----
 
 /** 渲染一个字段行（DSH ValueField 同款；toggle 标签与开关同一行）。 */
-function FieldRow({ spec, state, actions, t, disabled }: {
+function FieldRow({ spec, state, actions, t, disabled, desktop }: {
   spec: CardFieldSpec
   state: MessagerCardState['fields'][string]
   actions: MessagerCardActions
   t: (key: string) => string
   disabled: boolean
+  /** 桌面版：文案走 desktopLabel/desktopHint（如「浏览器通知」→「应用通知」）。 */
+  desktop: boolean
 }) {
   const id = `dsh-messager-${spec.group}-${spec.field}`
-  const label = t(spec.label)
+  const label = t(labelKeyFor(spec, desktop))
+  const hintKey = hintKeyFor(spec, desktop)
   const overriddenBadge = state.overridden && (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
       <span style={BADGE_STYLE}>{t('badge.overridden')}</span>
@@ -311,7 +322,7 @@ function FieldRow({ spec, state, actions, t, disabled }: {
       </div>
       {control}
       <p style={state.invalid ? INVALID_STYLE : HINT_STYLE}>
-        {state.invalid ? t('status.invalidField') : spec.hint === undefined ? '' : t(spec.hint)}
+        {state.invalid ? t('status.invalidField') : hintKey === undefined ? '' : t(hintKey)}
       </p>
     </div>
   )
@@ -327,11 +338,13 @@ const FIELD_LOOKUP: Record<string, CardFieldSpec> = Object.fromEntries(
  * @param state - 控制器快照（useMessagerCard 的返回）。
  * @param actions - 控制器动作（edit/reset/save/discard）。
  * @param t - 翻译函数（键 → 当前语言文案）。
+ * @param desktop - 桌面版窗口：分组标题与字段文案走桌面变体（见 GROUP_TITLE_KEYS_DESKTOP）。
  */
-export function MessagerSettingsForm({ state, actions, t }: {
+export function MessagerSettingsForm({ state, actions, t, desktop = false }: {
   state: MessagerCardState
   actions: MessagerCardActions
   t: (key: string) => string
+  desktop?: boolean
 }) {
   const groups = [...new Set(Object.keys(state.fields).map(key => key.split('.')[0]!))]
   const actionsDisabled = !state.writable || state.saving
@@ -358,7 +371,9 @@ export function MessagerSettingsForm({ state, actions, t }: {
       )}
       {groups.map(group => (
         <div key={group}>
-          <p style={GROUP_HEADING_STYLE}>{t(GROUP_TITLE_KEYS[group] ?? group)}</p>
+          <p style={GROUP_HEADING_STYLE}>
+            {t((desktop ? GROUP_TITLE_KEYS_DESKTOP[group] : undefined) ?? GROUP_TITLE_KEYS[group] ?? group)}
+          </p>
           {Object.entries(state.fields)
             .filter(([key]) => key.startsWith(`${group}.`))
             .map(([key, field]) => {
@@ -374,6 +389,7 @@ export function MessagerSettingsForm({ state, actions, t }: {
                   actions={actions}
                   t={t}
                   disabled={actionsDisabled}
+                  desktop={desktop}
                 />
               )
             })}

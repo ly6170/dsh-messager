@@ -56,21 +56,21 @@ describe('bodyOf', () => {
       .toBe('等待审批：bash')
   })
 
-  it('detailed：追加 turn/step、原因与 GUI 链接', () => {
+  it('detailed：追加 turn/step 与交互原因，且不含任何链接', () => {
     const body = bodyOf({ signal: interaction, config, sessionTitle: 't', verbosity: 'detailed' })
     expect(body).toContain('原因：需要授权')
-    expect(body).toContain('打开：http://127.0.0.1:3080')
+    expect(body).not.toMatch(/https?:\/\//)
     expect(bodyOf({ signal: completed, config, verbosity: 'detailed' })).toContain('turn 2')
     expect(bodyOf({ signal: error, config, verbosity: 'detailed' })).toContain('turn 1 / step 0')
   })
 })
 
 describe('renderPayload', () => {
-  it('组合标题/正文/链接', () => {
+  it('组合标题与正文，且载荷不再携带 url（v0.3.6 起推送无链接）', () => {
     const payload = renderPayload({ signal: completed, config, sessionTitle: '任务A', verbosity: 'normal' })
     expect(payload.title).toBe('任务完成')
     expect(payload.body).toContain('会话：任务A')
-    expect(payload.url).toBe('http://127.0.0.1:3080')
     expect(payload.sessionId).toBe('s1')
+    expect(payload).not.toHaveProperty('url')
   })
 })

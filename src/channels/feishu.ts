@@ -28,14 +28,11 @@ export interface FeishuCardPayload {
   msg_type: 'interactive'
   card: {
     header: { title: { tag: 'plain_text'; content: string }; template: 'green' | 'orange' | 'red' }
-    elements: (
-      | { tag: 'div'; text: { tag: 'lark_md'; content: string } }
-      | { tag: 'action'; actions: Array<{ tag: 'button'; text: { tag: 'plain_text'; content: string }; url: string; type: 'primary' }> }
-    )[]
+    elements: Array<{ tag: 'div'; text: { tag: 'lark_md'; content: string } }>
   }
 }
 
-/** 构建飞书卡片（纯函数）。 */
+/** 构建飞书卡片（纯函数；不含任何跳转链接）。 */
 export function buildCardPayload(payload: NotificationPayload): FeishuCardPayload {
   return {
     msg_type: 'interactive',
@@ -44,20 +41,11 @@ export function buildCardPayload(payload: NotificationPayload): FeishuCardPayloa
         title: { tag: 'plain_text', content: payload.title },
         template: cardTemplateOf(payload.kind),
       },
-      elements: [
-        ...(payload.body === ''
-          ? []
-          : [{ tag: 'div' as const, text: { tag: 'lark_md' as const, content: payload.body } }]),
-        {
-          tag: 'action',
-          actions: [{
-            tag: 'button',
-            text: { tag: 'plain_text', content: '打开 DSH' },
-            url: payload.url,
-            type: 'primary',
-          }],
-        },
-      ],
+      // minimal 级别没有正文：正文退化为标题，保证卡片始终有正文元素
+      elements: [{
+        tag: 'div',
+        text: { tag: 'lark_md', content: payload.body === '' ? payload.title : payload.body },
+      }],
     },
   }
 }

@@ -1,5 +1,5 @@
 /**
- * Discord 通道（webhook）：embed 卡片（标题/正文/链接 + kind 颜色），host 端投递。
+ * Discord 通道（webhook）：embed 卡片（标题/正文 + kind 颜色），host 端投递。
  *
  * 成功判定：任意 2xx（Discord 通常返回 204 No Content，无 body 可解析，
  * 因此与飞书/企微/钉钉的 errcode 判定不同，不解析响应 JSON）。
@@ -28,19 +28,17 @@ export interface DiscordEmbedPayload {
   embeds: Array<{
     title: string
     description?: string
-    url: string
     color: number
   }>
 }
 
-/** 构建 Discord embed 载荷（纯函数；title ≤ 256、description ≤ 4096）。 */
+/** 构建 Discord embed 载荷（纯函数；title ≤ 256、description ≤ 4096；不含链接）。 */
 export function buildDiscordPayload(payload: NotificationPayload): DiscordEmbedPayload {
   return {
     username: 'DSH',
     embeds: [{
       title: payload.title.slice(0, 256),
       ...(payload.body === '' ? {} : { description: payload.body.slice(0, 4096) }),
-      url: payload.url,
       color: embedColorOf(payload.kind),
     }],
   }

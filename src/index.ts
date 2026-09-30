@@ -14,6 +14,7 @@ import type {} from '@deepseek-ai/dsh-agent'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-client-connection'
 import { resolveConfig, type Config as ConfigShape, type RuntimeConfig } from './config.js'
 import { interactionSignalOf, errorMessageOf, turnEndReasonOf } from './signals.js'
 import { NotificationDispatcher, type NotifyChannel } from './notify.js'
@@ -24,7 +25,8 @@ import { createDiscordChannel } from './channels/discord.js'
 import { createDingtalkChannel } from './channels/dingtalk.js'
 import { createTelegramChannel } from './channels/telegram.js'
 import { resolveNamespace } from './settings.js'
-import { mountConfigRoutes, type SettingsServiceLike } from './config-route.js'
+import { mountConfigRoutes, sameOrigin, type RouteGuard, type SettingsServiceLike } from './config-route.js'
+import { applyEnvironmentDefaults, detectHostKind, environmentDefaults } from './environment.js'
 
 export const name = 'dsh-messager'
 
@@ -122,6 +124,22 @@ function sessionTitleOf(session: Session): string | undefined {
 /** 已扫描过日志且确认无标题的会话（避免对无标题会话反复全量扫描大日志）。 */
 const noTitleSessions = new Set<string>()
 
+/**
+ * 读取本插件命名空间的「用户显式设置过」层（`settings.describe().user`）。
+ *
+ * - **不传** `redactSecrets`：脱敏会删掉 secret 叶子，使 `userSet` 判断失真；
+ *   这里只判断「键是否存在」，不读取、不记录、不外传任何值。
+ * - 服务或命名空间不可知时返回 `undefined`，调用方据此**跳过**环境默认值
+ *   （宁可退回旧行为，也不覆盖用户写在 profile patch 里的显式选择）。
+ */
+function userLayerOf(settingsCtx: Context | undefined): unknown {
+  if (settingsCtx === undefined) return undefined
+  const settings = settingsCtx.get('settings') as unknown as SettingsServiceLike | undefined
+  if (settings === undefined) return undefined
+  const namespace = resolveNamespace(settingsCtx)
+  return settings.describe().find(row => row.ns === namespace)?.user
+}
+
 /** 标题兜底：实时 map 缺失时从会话日志补取一次；新标题事件到达时解除负缓存。 */
 function ensureSessionTitle(dispatcher: NotificationDispatcher, session: Session): void {
   const sessionId = session.id
@@ -144,7 +162,21 @@ function ensureSessionTitle(dispatcher: NotificationDispatcher, session: Session
  */
 export function apply(ctx: Context, config: RuntimeConfig) {
   /**
-   * 读取当前有效配置。
+   * 宿主形态（v0.3.6 智能默认）：桌面壳托管的 Electron 宿主下，`system` 通道默认关闭
+   * —— 桌面版的原生通知只能由窗口页面投递，host 半边只有 node-notifier（SnoreToast）。
+   * 详见 src/environment.ts 的模块说明。
+   */
+  const hostKind = detectHostKind(process.env, process.versions, typeof process.send === 'function')
+
+  /** settings 上下文（可用时）：**只**用于读取「用户显式设置过」的层，不读配置值本身。 */
+  let settingsCtx: Context | undefined
+
+  /**
+   * 读取当前有效配置 = 合并终值（schema 默认 → base → user）+ 环境默认值。
+   *
+   * 环境默认值**只覆盖用户没显式设置过的叶子**（`describe().user` 键存在即用户写过）；
+   * 用户层不可知（无 settings 服务）时**不套**环境默认值，宁可退回旧行为，
+   * 也不能覆盖用户写在 profile patch 里的显式选择。
    *
    * ⚠️ 关键：**每次用时读取 volatile 引用**，绝不缓存配置快照。
    *
@@ -157,7 +189,11 @@ export function apply(ctx: Context, config: RuntimeConfig) {
    * Loader 会**就地更新** volatile 引用（`Entry._commitVolatile`），所以这里
    * 每次调用都能拿到最新值 —— 这也是 DSH 官方插件（如 pwsh-local）的惯例用法。
    */
-  const readConfig = (): ConfigShape => resolveConfig(config)
+  const readConfig = (): ConfigShape => {
+    const base = resolveConfig(config)
+    const user = userLayerOf(settingsCtx)
+    return user === undefined ? base : applyEnvironmentDefaults(base, user, environmentDefaults(hostKind))
+  }
 
   /** 按签名缓存的通道构建（配置变化时自动重建）。 */
   let channelCache: { signature: string; channels: NotifyChannel[] } | undefined
@@ -178,22 +214,46 @@ export function apply(ctx: Context, config: RuntimeConfig) {
     },
   })
 
-  // 配置读写路由（webServer 通道）：浏览器端经此读写本插件命名空间，
-  // 不受 Web 设置白名单门控（dsh-market 同款「正门」）。仅 Web 环境挂载；
-  // headless profile 无 webServer 服务时本 inject 不执行，不影响通知功能。
-  //
-  // 注意：本插件的**自身配置**不需要 settings 服务 —— Loader 已把 volatile 引用
-  // 交给我们并就地更新（见 readConfig）。settings 只用于这条浏览器读写路由。
-  ctx.inject(['webServer'], (webCtx) => {
-    webCtx.inject(['settings'], (fullCtx) => {
-      const settingsService = fullCtx.get('settings')
+  // settings 上下文（可选）：既供「用户层」判定（智能默认），也供下方配置路由。
+  // 本插件的**自身配置值**仍只从 Loader 的 volatile 引用读取（见 readConfig），
+  // settings 在这里不参与读值，只用来判断「用户有没有显式设置过某个字段」。
+  ctx.inject(['settings'], (settingsContext) => {
+    settingsCtx = settingsContext
+    settingsContext.effect(() => () => { settingsCtx = undefined }, 'dsh-messager: settings handle')
+
+    // 配置读写路由（webServer 通道）：浏览器端经此读写本插件命名空间，
+    // 不受 Web 设置白名单门控（dsh-market 同款「正门」）。仅 Web 环境挂载；
+    // headless profile 无 webServer 服务时本 inject 不执行，不影响通知功能。
+    settingsContext.inject(['webServer'], (webCtx) => {
+      const settingsService = webCtx.get('settings')
       if (settingsService === undefined) return
+      /**
+       * 访问守卫：宿主连接服务是官方为「另一条 Web 路由」提供的鉴权正门
+       * （`ctx.connection.requestRejection`，与宿主 `/api` 同一套 cookie 判定）。
+       * 它不看 Origin/Referer —— 桌面壳转发请求时会删掉 Origin、只留
+       * `referer: dsh-app://app/`，用来源头判定必然误伤（v0.3.5 起桌面版保存必 403）。
+       * 每次请求求值：connection 服务可能晚于本插件可用。
+       * 服务缺席（无 client-connection 的部署）时退回来源校验，只防浏览器跨站。
+       */
+      const guard: RouteGuard = (request) => {
+        const connection = webCtx.get('connection')
+        if (connection !== undefined) return connection.requestRejection(request)
+        return sameOrigin(request) ? undefined : 403
+      }
+      /**
+       * 视图里的「有效值」必须与 host 端实际使用的值一致 —— 否则设置页会显示
+       * 「系统通知：开」而 host 实际按环境默认值关闭，用户改不动也看不懂。
+       */
+      const effectiveValue = (value: unknown, user: unknown): unknown =>
+        applyEnvironmentDefaults(value as ConfigShape, user, environmentDefaults(hostKind))
       const disposeRoutes = mountConfigRoutes(
-        fullCtx.webServer,
+        webCtx.webServer,
         settingsService as unknown as SettingsServiceLike,
-        resolveNamespace(fullCtx),
+        resolveNamespace(webCtx),
+        guard,
+        effectiveValue,
       )
-      fullCtx.effect(() => disposeRoutes, 'dsh-messager: config routes')
+      webCtx.effect(() => disposeRoutes, 'dsh-messager: config routes')
     })
   })
 

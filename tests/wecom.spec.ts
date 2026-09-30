@@ -7,19 +7,24 @@ const payload: NotificationPayload = {
   sessionId: 's1',
   title: '任务完成',
   body: '会话：修 bug',
-  url: 'http://127.0.0.1:3080',
 }
 
 describe('buildWecomPayload', () => {
-  it('构建 markdown 消息：标题加粗 + 正文 + 打开链接', () => {
+  it('构建 markdown 消息：标题加粗 + 正文', () => {
     const message = buildWecomPayload(payload)
     expect(message.msgtype).toBe('markdown')
-    expect(message.markdown.content).toBe('**任务完成**\n会话：修 bug\n[打开 DSH](http://127.0.0.1:3080)')
+    expect(message.markdown.content).toBe('**任务完成**\n会话：修 bug')
   })
 
   it('空正文时省略正文行', () => {
     const message = buildWecomPayload({ ...payload, body: '' })
-    expect(message.markdown.content).toBe('**任务完成**\n[打开 DSH](http://127.0.0.1:3080)')
+    expect(message.markdown.content).toBe('**任务完成**')
+  })
+
+  it('不带任何链接（v0.3.6 起第三方推送不含跳转链接）', () => {
+    const message = buildWecomPayload(payload)
+    expect(message.markdown.content).not.toMatch(/https?:\/\//)
+    expect(message.markdown.content).not.toContain('[打开')
   })
 
   it('超长 content 截断到 4000 字符（兜底守卫）', () => {

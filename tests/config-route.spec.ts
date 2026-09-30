@@ -3,7 +3,7 @@ import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
   configViewOf, mountConfigRoutes, parseConfigWriteBody, sameOrigin,
-  CONFIG_NAMESPACE, type SettingsServiceLike, type WebServerLike,
+  CONFIG_NAMESPACE, type RouteGuard, type SettingsServiceLike, type WebServerLike,
 } from '../src/config-route.ts'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 
@@ -68,12 +68,17 @@ const descriptor = {
   base: undefined,
 }
 
-/** 挂载路由并返回唯一的 handler。 */
-function mountedHandler(service: SettingsServiceLike) {
+/** 挂载路由并返回唯一的 handler（可注入访问守卫与有效值变换）。 */
+function mountedHandler(
+  service: SettingsServiceLike,
+  guard?: RouteGuard,
+  effective?: (value: unknown, user: unknown) => unknown,
+) {
   const { webServer, routes } = fakeWebServer()
-  mountConfigRoutes(webServer, service)
-  expect(routes).toHaveLength(1)
-  return routes[0]!.handler
+  mountConfigRoutes(webServer, service, CONFIG_NAMESPACE, guard, effective)
+  const route = routes.find(candidate => candidate.path === '/dsh-messager/config')
+  expect(route).toBeDefined()
+  return route!.handler
 }
 
 describe('configViewOf', () => {
@@ -133,17 +138,93 @@ describe('sameOrigin', () => {
   }) as unknown as IncomingMessage
 
   it('Origin 与 Host 匹配 → 放行', () => {
-    expect(sameOrigin(request('http://127.0.0.1:3080'), true)).toBe(true)
+    expect(sameOrigin(request('http://127.0.0.1:3080'))).toBe(true)
+  })
+
+  it('桌面版窗口来源（dsh-app:）→ 放行：壳转发时删 Origin、只留 Referer', () => {
+    // DSH Desktop 的 forwardWebRequest 会删掉 origin/host/cookie，referer 原样透传
+    expect(sameOrigin(request(undefined, 'dsh-app://app/'))).toBe(true)
+    expect(sameOrigin(request('dsh-app://app'))).toBe(true)
   })
 
   it('跨源 → 拒绝', () => {
-    expect(sameOrigin(request('https://evil.example'), true)).toBe(false)
-    expect(sameOrigin(request('http://127.0.0.1:3081'), true)).toBe(false)
+    expect(sameOrigin(request('https://evil.example'))).toBe(false)
+    expect(sameOrigin(request('http://127.0.0.1:3081'))).toBe(false)
   })
 
-  it('无来源头：requireOrigin=false（GET）放行；true（POST）拒绝', () => {
-    expect(sameOrigin(request(), false)).toBe(true)
-    expect(sameOrigin(request(), true)).toBe(false)
+  it('无来源头 → 放行（宿主内部调用/本机脚本；来源头本就不构成本机安全边界）', () => {
+    expect(sameOrigin(request())).toBe(true)
+  })
+
+  it('来源头非法（无法解析成 URL）→ 拒绝', () => {
+    expect(sameOrigin(request('not-a-url'))).toBe(false)
+  })
+})
+
+describe('访问守卫（宿主连接服务鉴权）', () => {
+  it('guard 返回 401 → GET/POST 一律拒绝，且不触碰 settings', async () => {
+    const { service, describe: describeFn, mutate } = fakeSettings(descriptor)
+    const handler = mountedHandler(service, () => 401)
+    for (const method of ['GET', 'POST']) {
+      const payload = method === 'POST'
+        ? JSON.stringify({ ops: [{ op: 'set', path: ['feishu', 'enabled'], value: true }] })
+        : undefined
+      const { res, status, body } = fakeResponse()
+      await handler(fakeRequest(method, {}, payload), res)
+      expect(status()).toBe(401)
+      expect(JSON.parse(body())).toEqual({ ok: false, error: 'unauthenticated' })
+    }
+    expect(describeFn).not.toHaveBeenCalled()
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('guard 返回 403 → untrusted origin', async () => {
+    const { service } = fakeSettings(descriptor)
+    const handler = mountedHandler(service, () => 403)
+    const { res, status, body } = fakeResponse()
+    await handler(fakeRequest('GET', {}), res)
+    expect(status()).toBe(403)
+    expect(JSON.parse(body())).toEqual({ ok: false, error: 'untrusted origin' })
+  })
+
+  it('guard 自身抛错 → fail closed（403 guard failed，而不是宿主兜底的 400）', async () => {
+    const { service, mutate } = fakeSettings(descriptor)
+    const handler = mountedHandler(service, () => { throw new Error('connection service exploded') })
+    const { res, status, body } = fakeResponse()
+    await handler(fakeRequest('POST', {}, '{"ops":[]}'), res)
+    expect(status()).toBe(403)
+    expect(JSON.parse(body())).toEqual({ ok: false, error: 'guard failed' })
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('guard 也覆盖非 GET/POST 方法（拒绝优先于 405）', async () => {
+    const { service } = fakeSettings(descriptor)
+    const handler = mountedHandler(service, () => 401)
+    const { res, status } = fakeResponse()
+    await handler(fakeRequest('DELETE', {}), res)
+    expect(status()).toBe(401)
+  })
+
+  it('guard 放行时收到原始请求（可交给 ctx.connection.requestRejection）', async () => {
+    const { service } = fakeSettings(descriptor)
+    const seen: Array<string | undefined> = []
+    const handler = mountedHandler(service, (request) => {
+      seen.push(request.headers.host)
+      return undefined
+    })
+    const { res, status } = fakeResponse()
+    await handler(fakeRequest('GET', {}), res)
+    expect(status()).toBe(200)
+    expect(seen).toEqual(['127.0.0.1:3080'])
+  })
+
+  it('未注入守卫时退回来源校验：跨源 POST 仍 403', async () => {
+    const { service, mutate } = fakeSettings(descriptor)
+    const handler = mountedHandler(service)
+    const { res, status } = fakeResponse()
+    await handler(fakeRequest('POST', { origin: 'https://evil.example' }, '{}'), res)
+    expect(status()).toBe(403)
+    expect(mutate).not.toHaveBeenCalled()
   })
 })
 
@@ -155,6 +236,22 @@ describe('mountConfigRoutes（HTTP 层）', () => {
     await handler(fakeRequest('GET', {}), res)
     expect(status()).toBe(200)
     expect(JSON.parse(body())).toMatchObject({ status: 'ready', revision: 3 })
+  })
+
+  it('GET 的有效值经变换（设置页显示 host 实际使用的值），user/base 保持原样', async () => {
+    const { service } = fakeSettings(descriptor)
+    const handler = mountedHandler(service, undefined, (value, user) => ({
+      ...(value as Record<string, unknown>),
+      system: { enabled: false }, // 模拟环境默认值（桌面宿主）
+      seenUser: user,
+    }))
+    const { res, status, body } = fakeResponse()
+    await handler(fakeRequest('GET', {}), res)
+    const view = JSON.parse(body()) as { value: Record<string, unknown>; user: unknown }
+    expect(status()).toBe(200)
+    expect(view.value).toMatchObject({ system: { enabled: false } })
+    expect(view.value.seenUser).toEqual({ triggers: { interaction: false } })
+    expect(view.user).toEqual({ triggers: { interaction: false } })
   })
 
   it('POST 合法 ops → settings.mutate 收到规范化 ops 与 expectedRevision', async () => {
@@ -180,6 +277,29 @@ describe('mountConfigRoutes（HTTP 层）', () => {
     await handler(fakeRequest('POST', { origin: 'https://evil.example' }, '{}'), res)
     expect(status()).toBe(403)
     expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('POST 桌面版窗口转发形态（Origin 被壳删除、Referer=dsh-app://app/）→ 200', async () => {
+    // 回归用例（v0.3.6）：桌面版设置页保存曾因来源判定返回 403 untrusted origin
+    const { service, mutate } = fakeSettings(descriptor)
+    const handler = mountedHandler(service)
+    const { res, status } = fakeResponse()
+    await handler(fakeRequest('POST', { referer: 'dsh-app://app/' }, JSON.stringify({
+      ops: [{ op: 'set', path: ['feishu', 'enabled'], value: true }],
+    })), res)
+    expect(status()).toBe(200)
+    expect(mutate).toHaveBeenCalled()
+  })
+
+  it('POST 无任何来源头（宿主内部/本机调用）→ 200', async () => {
+    const { service, mutate } = fakeSettings(descriptor)
+    const handler = mountedHandler(service)
+    const { res, status } = fakeResponse()
+    await handler(fakeRequest('POST', {}, JSON.stringify({
+      ops: [{ op: 'set', path: ['feishu', 'enabled'], value: true }],
+    })), res)
+    expect(status()).toBe(200)
+    expect(mutate).toHaveBeenCalled()
   })
 
   it('POST 坏 JSON / 非法 ops → 400', async () => {

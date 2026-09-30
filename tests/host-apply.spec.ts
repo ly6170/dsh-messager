@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import { Readable } from 'node:stream'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
+import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { updateVolatile } from '@deepseek-ai/cosmokit'
 import { apply } from '../src/index.ts'
 import { Config } from '../src/config.ts'
@@ -63,6 +66,98 @@ describe('host apply 的配置接线', () => {
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
     vi.unstubAllGlobals()
+  })
+
+  /** 假请求（真实请求必带 Host 头）。 */
+  function fakeRequest(method: string, headers: Record<string, string> = {}, body?: string): IncomingMessage {
+    const stream = new Readable({ read() {} })
+    stream.headers = { host: '127.0.0.1:3080', ...headers }
+    stream.method = method
+    stream.url = '/dsh-messager/config'
+    if (body !== undefined) stream.push(body)
+    stream.push(null)
+    return stream as unknown as IncomingMessage
+  }
+
+  /** 假响应：捕获状态码与 body。 */
+  function fakeResponse() {
+    let status = 200
+    let payload = ''
+    const res = {
+      writeHead(code: number) { status = code },
+      end(chunk?: string) { payload = chunk ?? '' },
+    } as unknown as ServerResponse
+    return { res, status: () => status, body: () => payload }
+  }
+
+  /**
+   * 装配 settings + webServer（可选 connection）并返回捕获到的配置路由。
+   *
+   * ⚠️ 这里**不注入假 guard**：走的就是 `src/index.ts` 里那条真实接线
+   * （`ctx.get('connection')?.requestRejection` → fallback `sameOrigin`），
+   * 因此能覆盖「桌面版保存不再 403」这条修复的回归。
+   */
+  async function mountRoutes(
+    connection?: { requestRejection: (request: IncomingMessage) => 401 | 403 | undefined },
+  ): Promise<WebRoute> {
+    const runtime = Config({ system: { enabled: false }, browser: { enabled: false } })
+    const ctx = new Context()
+    const routes: WebRoute[] = []
+    ctx.provide('settings' as never, {
+      writable: true,
+      describe: () => [{
+        ns: 'messager',
+        value: { triggers: { interaction: true } },
+        revision: 0,
+        user: {},
+      }],
+      mutate: async () => undefined,
+    } as never)
+    ctx.provide('webServer' as never, {
+      register: (route: WebRoute) => {
+        routes.push(route)
+        return () => undefined
+      },
+    } as never)
+    if (connection !== undefined) ctx.provide('connection' as never, connection as never)
+
+    apply(ctx, runtime)
+    await vi.waitFor(() => expect(routes.some(route => route.path === '/dsh-messager/config')).toBe(true))
+    return routes.find(route => route.path === '/dsh-messager/config')!
+  }
+
+  it('settings + webServer 可用时挂载配置路由（v0.3.6 注入重构的集成检查）', async () => {
+    // 回归点：配置路由的 inject 由「webServer 外层」改为「settings 外层、webServer 内层」
+    // （settings 同时用于智能默认读取用户层）。若嵌套写错，路由不会挂载且**没有任何报错**。
+    const route = await mountRoutes()
+    expect(route.path).toBe('/dsh-messager/config')
+  })
+
+  it('连接服务可用：路由走 requestRejection（放行 → 200，拒绝 → 401）', async () => {
+    const requestRejection = vi.fn((_request: IncomingMessage): 401 | 403 | undefined => undefined)
+    const route = await mountRoutes({ requestRejection })
+
+    const allowed = fakeResponse()
+    await route.handler(fakeRequest('GET'), allowed.res)
+    expect(requestRejection).toHaveBeenCalledTimes(1)
+    expect(allowed.status()).toBe(200)
+
+    requestRejection.mockReturnValue(401)
+    const denied = fakeResponse()
+    await route.handler(fakeRequest('GET'), denied.res)
+    expect(denied.status()).toBe(401)
+    expect(JSON.parse(denied.body())).toEqual({ ok: false, error: 'unauthenticated' })
+  })
+
+  it('连接服务缺席：退回来源校验（跨源 POST → 403，同源 → 放行）', async () => {
+    const route = await mountRoutes()
+    const crossOrigin = fakeResponse()
+    await route.handler(fakeRequest('POST', { origin: 'https://evil.example' }, '{}'), crossOrigin.res)
+    expect(crossOrigin.status()).toBe(403)
+
+    const sameOrigin = fakeResponse()
+    await route.handler(fakeRequest('GET', { origin: 'http://127.0.0.1:3080' }), sameOrigin.res)
+    expect(sameOrigin.status()).toBe(200)
   })
 
   it('volatile 引用被就地更新后立即生效：关闭通道后不再投递', async () => {
@@ -190,9 +285,9 @@ describe('host apply 的会话标题兜底', () => {
     ctx.emit('agent/status', { agent, status: 'idle' } as never)
 
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
-    // detailed 正文至少带「打开」行；无标题事件故无「会话」行（断言不抛错即可，重点在触达）
-    expect(capturedCardBody(fetchMock)).toContain('打开：')
+    // 无标题事件故无「会话」行；v0.3.6 起推送正文不含任何链接（断言不抛错即可，重点在触达）
     expect(capturedCardBody(fetchMock)).not.toContain('会话：')
+    expect(capturedCardBody(fetchMock)).not.toMatch(/https?:\/\//)
     vi.unstubAllGlobals()
   })
 

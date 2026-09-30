@@ -42,22 +42,40 @@ const UNAVAILABLE_STYLE: React.CSSProperties = {
   color: 'var(--dsw-alias-label-tertiary)',
 }
 
+/** 环境说明（如桌面版隐藏了「系统通知」开关）。 */
+const NOTE_STYLE: React.CSSProperties = {
+  margin: 0,
+  padding: '8px 10px',
+  borderRadius: 6,
+  fontSize: 12,
+  lineHeight: 1.6,
+  color: 'var(--dsw-alias-label-secondary)',
+  background: 'var(--dsw-alias-bg-layer-3)',
+}
+
 /**
  * dsh-messager 设置分区（设置页「通知&信使」）。
  * @param props - 槽位 owner props + 注入面（useMessagerCard + 动作 + t）。
  */
 export function MessagerSection(props: MessagerSectionProps) {
   const state = props.useMessagerCard(snapshot => snapshot)
-  const { edit, reset, save, discard, t } = props
+  const { edit, reset, save, discard, t, desktop } = props
 
   return (
     <div style={SECTION_STYLE}>
       <div>
         <h2 style={TITLE_STYLE}>{t('nav')}</h2>
-        <p style={DESCRIPTION_STYLE}>{t('section.description')}</p>
+        <p style={DESCRIPTION_STYLE}>
+          {t(desktop ? 'section.description.desktop' : 'section.description')}
+        </p>
       </div>
       {state.available
-        ? <MessagerSettingsForm state={state} actions={{ edit, reset, save, discard }} t={t} />
+        ? (
+          <>
+            {desktop ? <p style={NOTE_STYLE}>{t('hint.desktopFallback')}</p> : null}
+            <MessagerSettingsForm state={state} actions={{ edit, reset, save, discard }} t={t} desktop={desktop} />
+          </>
+        )
         : <p style={UNAVAILABLE_STYLE} role="status">{t('status.unavailable')}</p>}
     </div>
   )

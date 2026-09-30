@@ -17,6 +17,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 // 类型合并：ctx.locale（dsh-client-locale）与 settings.section 槽位声明（ui-settings）
@@ -26,8 +27,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { Verbosity } from '../config.js'
 import type { Config } from '../config.js'
 import { ClientConfig, type ClientConfigHandle } from './config.js'
-import { diffPendingInteractions, diffSessionSummaries, triggerAllows, type ClientNotice } from './diff.js'
+import { diffPendingInteractions, diffSessionSummaries, errorNotice, triggerAllows, type ClientNotice } from './diff.js'
 import { CARD_FIELDS, MessagerCardController } from './card-controller.js'
+import { isDesktopWindow, isWindowBackgrounded } from './desktop.js'
 import { createFetchScope, type ConfigFetcher } from './fetch-scope.js'
 import { MessagerSection } from './section.jsx'
 import { zh, en } from './locales.js'
@@ -57,7 +59,11 @@ class BrowserNotifier {
 
   /** 列表快照变化 → 通知。 */
   onListChange(previous: SessionListState, next: SessionListState): void {
-    this.onNotices(diffSessionSummaries(previous.byId, next.byId))
+    // 用户没在看（后台/最小化）时，连「当前打开的会话」完成了也要提醒；
+    // 页面可见仍在通知（onlyWhenHidden=false）时保留该过滤，避免打扰正看着的会话。
+    this.onNotices(diffSessionSummaries(previous.byId, next.byId, {
+      ignoreMainView: BrowserNotifier.backgrounded(),
+    }))
   }
 
   /** 待交互状态变化 → 通知。 */
@@ -69,12 +75,33 @@ class BrowserNotifier {
     this.onNotices(diffPendingInteractions(previous, next, sessions.byId))
   }
 
+  /** 任务出错（宿主 `agent/error` 经 `api-session/error` 转发）→ 通知。 */
+  onError(sessionId: SessionId, message: string, sessions: SessionListState): void {
+    this.onNotices([errorNotice(sessionId, message, sessions.byId)])
+  }
+
+  /**
+   * 用户现在是否「没在看这个窗口」。
+   *
+   * 浏览器：页面 hidden（切走标签页 / 最小化）；桌面版：再补上「失去焦点」——
+   * 桌面窗口被别的窗口盖住时 `visibilityState` 仍是 `visible`，
+   * 只看它会导致切到别的应用就永远不提醒（见 src/client/desktop.ts）。
+   */
+  private static backgrounded(): boolean {
+    if (typeof document === 'undefined') return false
+    return isWindowBackgrounded({
+      desktop: isDesktopWindow(),
+      visibilityState: document.visibilityState,
+      hasFocus: document.hasFocus(),
+    })
+  }
+
   private onNotices(notices: readonly ClientNotice[]): void {
     const config = this.config.get()
     if (!config.browser.enabled) return
     if (typeof Notification === 'undefined') return
     if (Notification.permission !== 'granted') return
-    if (config.browser.onlyWhenHidden && document.visibilityState !== 'hidden') return
+    if (config.browser.onlyWhenHidden && !BrowserNotifier.backgrounded()) return
 
     for (const notice of notices) {
       if (!triggerAllows(notice, config.triggers)) continue
@@ -124,6 +151,8 @@ class BrowserNotifier {
         : notice.interaction === 'plan-review'
           ? '需要交互：计划待审'
           : '需要交互：等待回答'
+    } else if (notice.kind === 'error') {
+      base = '任务出错'
     } else {
       base = '任务完成'
     }
@@ -134,11 +163,11 @@ class BrowserNotifier {
   private bodyOf(notice: ClientNotice, config: Config, verbosity: Verbosity): string {
     const lines: string[] = []
     if (verbosity === 'minimal') return ''
+    if (notice.kind === 'error' && notice.message !== undefined && notice.message !== '') {
+      lines.push(`错误：${notice.message}`)
+    }
     if (config.message.includeSessionTitle && notice.title !== undefined) {
       lines.push(`会话：${notice.title}`)
-    }
-    if (verbosity === 'detailed') {
-      lines.push(`打开：${config.message.guiUrl}`)
     }
     return lines.join('\n')
   }
@@ -214,10 +243,20 @@ export function apply(ctx: Context): void {
   })
   ctx.effect(() => () => offStatus(), 'dsh-messager: session status subscription')
 
+  // 任务出错：宿主 `agent/error` 经 `api-session/error` 转发到客户端。
+  // 桌面版默认只开渲染端通道（system 通道默认关），错误提醒靠这条覆盖。
+  const offError = ctx.remote.$on('api-session/error', (sessionId, message) => {
+    notifier.onError(sessionId, message, ctx.sessions.list.getSnapshot())
+  })
+  ctx.effect(() => () => offError(), 'dsh-messager: error subscription')
+
   // 设置页分区「通知&信使」：注册到 settings.section。
   // 数据经 webServer 配置路由读写（不受白名单门控），控制器与表单复用
   // MessagerCardController / MessagerSettingsForm；文案走 locale 字典。
-  const controller = new MessagerCardController(fetchScope.scope, CARD_FIELDS)
+  // 桌面版窗口下隐藏「没必要打开」的字段（system 组）：打开只会让同一事件弹两次。
+  const controller = new MessagerCardController(fetchScope.scope, CARD_FIELDS, {
+    desktop: isDesktopWindow(),
+  })
   ctx.effect(() => ctx.locale.register(LOCALE_NS, { zh, en }), 'dsh-messager: locale dictionaries')
   const t = ctx.locale.bind(LOCALE_NS)
   ctx.slots.inject('settings.section', function* () {

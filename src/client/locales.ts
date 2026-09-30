@@ -16,10 +16,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const zh = {
   nav: '通知&信使',
   'section.description': '会话交互 / 任务完成 / 出错时的通知推送：系统通知、浏览器通知、飞书/企业微信/Discord/钉钉/Telegram。',
+  'section.description.desktop': '会话交互 / 任务完成 / 出错时的通知推送：应用通知（由本应用投递，点通知可把窗口提到前台）、飞书/企业微信/Discord/钉钉/Telegram。',
 
   'group.triggers': '触发时机',
   'group.system': '系统通知',
   'group.browser': '浏览器通知',
+  'group.browser.desktop': '应用通知',
   'group.feishu': '飞书机器人',
   'group.wecom': '企业微信',
   'group.discord': 'Discord',
@@ -34,8 +36,10 @@ export const zh = {
   'field.system.icon': '图标路径',
   'field.system.verbosity': '内容繁复度',
   'field.browser.enabled': '启用浏览器通知',
+  'field.browser.enabled.desktop': '启用应用通知',
   'field.browser.icon': '图标 URL',
   'field.browser.onlyWhenHidden': '仅页面隐藏时通知',
+  'field.browser.onlyWhenHidden.desktop': '仅窗口不在前台时通知',
   'field.browser.verbosity': '内容繁复度',
   'field.feishu.enabled': '飞书机器人',
   'field.feishu.webhookUrl': 'Webhook 地址',
@@ -63,11 +67,11 @@ export const zh = {
   'field.telegram.verbosity': '内容繁复度',
   'field.message.titlePrefix': '标题前缀',
   'field.message.includeSessionTitle': '正文包含会话标题',
-  'field.message.guiUrl': '打开链接地址',
 
   'hint.system.icon': 'node-notifier 需要文件绝对路径',
   'hint.secret': '留空不修改；重置可清除已存密钥',
   'hint.message.titlePrefix': '如 [DSH]',
+  'hint.desktopFallback': '桌面版的通知由应用本体投递。若一直收不到（例如 Windows 未登记本应用），可打开上面的「系统通知」用 host 通道兜底 —— 代价是通知的署名不是本应用。',
 
   'action.save': '保存',
   'action.saving': '保存中…',
@@ -85,10 +89,12 @@ export const zh = {
 export const en = {
   nav: 'Messenger',
   'section.description': 'Notifications for interaction, task completion and errors: system toast, browser notification, Feishu/WeCom/Discord/DingTalk/Telegram.',
+  'section.description.desktop': 'Notifications for interaction, task completion and errors: app notifications (delivered by this app; clicking one brings the window forward), Feishu/WeCom/Discord/DingTalk/Telegram.',
 
   'group.triggers': 'Triggers',
   'group.system': 'System',
   'group.browser': 'Browser',
+  'group.browser.desktop': 'App notification',
   'group.feishu': 'Feishu bot',
   'group.wecom': 'WeCom',
   'group.discord': 'Discord',
@@ -103,8 +109,10 @@ export const en = {
   'field.system.icon': 'Icon path',
   'field.system.verbosity': 'Verbosity',
   'field.browser.enabled': 'Enable browser notifications',
+  'field.browser.enabled.desktop': 'Enable app notifications',
   'field.browser.icon': 'Icon URL',
   'field.browser.onlyWhenHidden': 'Notify only when the page is hidden',
+  'field.browser.onlyWhenHidden.desktop': 'Notify only when the app is in the background',
   'field.browser.verbosity': 'Verbosity',
   'field.feishu.enabled': 'Feishu bot',
   'field.feishu.webhookUrl': 'Webhook URL',
@@ -132,11 +140,11 @@ export const en = {
   'field.telegram.verbosity': 'Verbosity',
   'field.message.titlePrefix': 'Title prefix',
   'field.message.includeSessionTitle': 'Include session title in the body',
-  'field.message.guiUrl': 'Open link URL',
 
   'hint.system.icon': 'node-notifier requires an absolute file path',
   'hint.secret': 'Leave blank to keep the stored secret; Reset clears it',
   'hint.message.titlePrefix': 'e.g. [DSH]',
+  'hint.desktopFallback': 'On the desktop app, notifications are delivered by the app itself. If none ever appear (for example Windows has not registered the app), turn on "System" above as a fallback — those are delivered by the host, so they are not attributed to the app.',
 
   'action.save': 'Save',
   'action.saving': 'Saving…',

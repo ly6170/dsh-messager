@@ -7,21 +7,23 @@ const payload: NotificationPayload = {
   sessionId: 's1',
   title: '任务完成',
   body: '会话：修 bug',
-  url: 'http://127.0.0.1:3080',
 }
 
 describe('buildCardPayload', () => {
-  it('构建 interactive 卡片：标题/模板色/正文/打开按钮', () => {
+  it('构建 interactive 卡片：标题/模板色/正文', () => {
     const card = buildCardPayload(payload)
     expect(card.msg_type).toBe('interactive')
     expect(card.card.header.title.content).toBe('任务完成')
     expect(card.card.header.template).toBe('green')
+    expect(card.card.elements).toHaveLength(1)
     expect(card.card.elements[0]).toMatchObject({ tag: 'div', text: { content: '会话：修 bug' } })
-    const actions = card.card.elements.at(-1)
-    expect(actions).toMatchObject({ tag: 'action' })
-    if (actions?.tag === 'action') {
-      expect(actions.actions[0]).toMatchObject({ url: 'http://127.0.0.1:3080', type: 'primary' })
-    }
+  })
+
+  it('不带任何跳转按钮/链接（v0.3.6 起第三方推送不含跳转链接）', () => {
+    const json = JSON.stringify(buildCardPayload(payload))
+    expect(json).not.toContain('"action"')
+    expect(json).not.toMatch(/https?:\/\//)
+    expect(json).not.toContain('打开 DSH')
   })
 
   it('模板色按触发类型：interaction 橙 / error 红', () => {
@@ -29,9 +31,10 @@ describe('buildCardPayload', () => {
     expect(buildCardPayload({ ...payload, kind: 'error' }).card.header.template).toBe('red')
   })
 
-  it('空正文时省略 div 元素', () => {
+  it('空正文时正文退化为标题（卡片始终有正文元素）', () => {
     const card = buildCardPayload({ ...payload, body: '' })
-    expect(card.card.elements).toHaveLength(1) // 只有 action
+    expect(card.card.elements).toHaveLength(1)
+    expect(card.card.elements[0]!.text.content).toBe('任务完成')
   })
 })
 

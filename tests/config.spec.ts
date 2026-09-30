@@ -19,7 +19,6 @@ describe('config schema', () => {
     })
     expect(config.message).toEqual({
       includeSessionTitle: true,
-      guiUrl: 'http://127.0.0.1:3080',
     })
   })
 
@@ -39,7 +38,9 @@ describe('config schema', () => {
   it('the schema is callable and validates loudly', () => {
     expect(() => Config({ feishu: { enabled: 'yes' } })).toThrow()
     // 经 resolveConfig 取纯值：schema 直接调用返回的是 volatile 引用形态
-    expect(resolveConfig({ message: { guiUrl: 'not-a-url' } }).message.guiUrl).toBe('not-a-url')
+    expect(resolveConfig({ message: { titlePrefix: '[DSH]' } }).message.titlePrefix).toBe('[DSH]')
+    // v0.3.6 起 message.guiUrl 已移除（推送不再带链接）
+    expect(Object.hasOwn(resolveConfig({}).message, 'guiUrl')).toBe(false)
   })
 })
 

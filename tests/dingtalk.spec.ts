@@ -7,25 +7,27 @@ const payload: NotificationPayload = {
   sessionId: 's1',
   title: '任务完成',
   body: '会话：修 bug',
-  url: 'http://127.0.0.1:3080',
 }
 
 describe('buildDingtalkPayload', () => {
-  it('构建 actionCard：标题/正文含链接/打开按钮', () => {
+  it('构建 actionCard：标题 + 正文，无跳转按钮', () => {
     const card = buildDingtalkPayload(payload)
     expect(card.msgtype).toBe('actionCard')
-    expect(card.actionCard).toMatchObject({
-      title: '任务完成',
-      btnOrientation: '0',
-      singleTitle: '打开 DSH',
-      singleURL: 'http://127.0.0.1:3080',
-    })
-    expect(card.actionCard.text).toBe('会话：修 bug\n\n[打开 DSH](http://127.0.0.1:3080)')
+    expect(card.actionCard).toMatchObject({ title: '任务完成', btnOrientation: '0' })
+    expect(card.actionCard.text).toBe('会话：修 bug')
   })
 
-  it('空正文时 text 退化为 markdown 链接', () => {
+  it('不带任何链接/按钮（v0.3.6 起第三方推送不含跳转链接）', () => {
+    const card = buildDingtalkPayload(payload)
+    expect(card.actionCard).not.toHaveProperty('singleTitle')
+    expect(card.actionCard).not.toHaveProperty('singleURL')
+    expect(card.actionCard.text).not.toMatch(/https?:\/\//)
+    expect(card.actionCard.text).not.toContain('[打开')
+  })
+
+  it('空正文时 text 退化为标题（actionCard 的 text 不能为空）', () => {
     const card = buildDingtalkPayload({ ...payload, body: '' })
-    expect(card.actionCard.text).toBe('[打开 DSH](http://127.0.0.1:3080)')
+    expect(card.actionCard.text).toBe('任务完成')
   })
 
   it('title 截断到 20 字符（钉钉 actionCard 限制）', () => {

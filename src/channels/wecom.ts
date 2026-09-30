@@ -1,7 +1,7 @@
 /**
  * 企业微信群机器人通道（webhook）：POST markdown 消息，host 端投递。
  *
- * 消息：msgtype=markdown，content 为「加粗标题 + 正文 + 打开链接」。
+ * 消息：msgtype=markdown，content 为「加粗标题 + 正文」。
  * 可选加签（机器人「安全设置-加签」）：
  *   string_to_sign = `${timestamp}\n${secret}`
  *   sign = base64(HmacSHA256(string_to_sign, key=secret))   // 无需 URL 编码
@@ -29,7 +29,6 @@ export interface WecomMarkdownPayload {
 export function buildWecomPayload(payload: NotificationPayload): WecomMarkdownPayload {
   const lines = [`**${payload.title}**`]
   if (payload.body !== '') lines.push(payload.body)
-  lines.push(`[打开 DSH](${payload.url})`)
   return { msgtype: 'markdown', markdown: { content: lines.join('\n').slice(0, 4000) } }
 }
 

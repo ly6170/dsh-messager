@@ -3,7 +3,7 @@
  * 纯函数；verbosity（内容繁复度）按通道取值：
  * - minimal：只有标题
  * - normal：+ 会话标题 / 工具名 / 结束原因 / 错误摘要
- * - detailed：+ turn/step 与 GUI 链接
+ * - detailed：+ turn/step 与交互原因
  */
 
 import type { Config, Verbosity } from './config.ts'
@@ -15,8 +15,6 @@ export interface NotificationPayload {
   sessionId: string
   title: string
   body: string
-  /** 打开 DSH 的地址（system 通道点击 / 飞书卡片按钮）。 */
-  url: string
 }
 
 /** 渲染上下文。 */
@@ -111,7 +109,6 @@ export function bodyOf(ctx: RenderContext): string {
     if (signal.kind === 'interaction' && signal.reason !== undefined) {
       lines.push(`原因：${signal.reason}`)
     }
-    lines.push(`打开：${ctx.config.message.guiUrl}`)
   }
   return lines.join('\n')
 }
@@ -123,6 +120,5 @@ export function renderPayload(ctx: RenderContext): NotificationPayload {
     sessionId: ctx.signal.sessionId,
     title: titleOf(ctx),
     body: bodyOf(ctx),
-    url: ctx.config.message.guiUrl,
   }
 }

@@ -19,8 +19,8 @@
 - 语言：TypeScript（`strict` 全开，`noUncheckedIndexedAccess` 开启，ESM，
   `NodeNext` 模块解析）；client 端含 TSX（React 18）。
 - 包管理：pnpm（`packageManager: pnpm@11.7.0`）。
-- 平台版本线：插件版本 **`0.3.3`**，仅支持 DSH **`0.1.7-alpha.1`**；所有
-  `@deepseek-ai/dsh-*` peerDependencies 统一锁定该版本，不兼容旧 RC 接口。
+- 平台版本线：插件版本 **`0.3.6`**，支持 DSH **`0.2.0-rc.1`** 及兼容的 0.2.x 版本；所有
+  `@deepseek-ai/dsh-*` peerDependencies 统一使用 `^0.2.0-rc.1` 范围。DSH 升级 minor 时需同步更新范围。
   client 端会话列表使用 `dsh-api-session-controller`，交互状态使用
   `dsh-client-ui-session`，槽位服务使用 `dsh-client-ui-renderer`；不要重新引入已移除的
   `dsh-client-runtime`。
@@ -60,7 +60,7 @@ pnpm build       # 完整构建（host tsc + client 声明 + client bundle）
 | 调度层 | `src/notify.ts` | 过滤（triggers）、冷却、完成防抖、通道限流；`NotifyChannel` 接口；`NotificationDispatcher` |
 | 模板层 | `src/templates.ts` | verbosity 渲染出 `NotificationPayload`（纯函数） |
 | 配置层 | `src/settings.ts` | 解析 profile 条目 id（= settings 命名空间），供配置路由使用 |
-| 配置路由 | `src/config-route.ts` | webServer 路由 `GET/POST /dsh-messager/config`，同源校验 + 脱敏视图 + 逐字段 ops |
+| 配置路由 | `src/config-route.ts` | webServer 路由 `GET/POST /dsh-messager/config`，宿主鉴权（无 connection 时退回来源校验）+ 脱敏视图 + 逐字段 ops |
 | 共享类型 | `src/config-shared.ts` | host/client 跨端共用、不得引入 Node/浏览器专属模块 |
 | 通道 | `src/channels/system.ts` | 系统通知（node-notifier，平台分流 + 图标存在性校验 + 去图标重试） |
 | 通道 | `src/channels/feishu.ts` | 飞书 webhook（interactive 卡片 + HMAC-SHA256 签名，sign 在请求体内） |

@@ -123,8 +123,6 @@ export interface MessageConfig {
   titlePrefix?: string
   /** 正文是否附带会话标题。 */
   includeSessionTitle: boolean
-  /** GUI 地址，用于通知中的“打开”链接/按钮。 */
-  guiUrl: string
 }
 
 export interface Config {
@@ -210,7 +208,6 @@ export const Config = Schema.object({
   message: Schema.object({
     titlePrefix: Schema.string().volatile(),
     includeSessionTitle: Schema.boolean().default(true).volatile(),
-    guiUrl: Schema.string().default('http://127.0.0.1:3080').volatile(),
   }),
 })
 

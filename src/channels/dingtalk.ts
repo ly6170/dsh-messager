@@ -1,5 +1,5 @@
 /**
- * 钉钉自定义机器人通道（webhook）：actionCard 卡片（标题 + markdown 正文 + 打开按钮），host 端投递。
+ * 钉钉自定义机器人通道（webhook）：actionCard 卡片（标题 + 正文），host 端投递。
  *
  * 可选加签（机器人「安全设置-加签」）：
  *   string_to_sign = `${timestamp}\n${secret}`
@@ -19,29 +19,24 @@ export interface DingtalkChannelOptions {
   timeoutMs: number
 }
 
-/** 钉钉 actionCard 载荷。 */
+/** 钉钉 actionCard 载荷（无跳转按钮）。 */
 export interface DingtalkActionCardPayload {
   msgtype: 'actionCard'
   actionCard: {
     title: string
     text: string
     btnOrientation: '0'
-    singleTitle: string
-    singleURL: string
   }
 }
 
-/** 构建钉钉 actionCard 载荷（纯函数；title 限 20 字符；正文空时退化为链接）。 */
+/** 构建钉钉 actionCard 载荷（纯函数；title 限 20 字符；无正文时正文退化为标题）。 */
 export function buildDingtalkPayload(payload: NotificationPayload): DingtalkActionCardPayload {
-  const link = `[打开 DSH](${payload.url})`
   return {
     msgtype: 'actionCard',
     actionCard: {
       title: payload.title.slice(0, 20),
-      text: payload.body === '' ? link : `${payload.body}\n\n${link}`,
+      text: payload.body === '' ? payload.title : payload.body,
       btnOrientation: '0',
-      singleTitle: '打开 DSH',
-      singleURL: payload.url,
     },
   }
 }
