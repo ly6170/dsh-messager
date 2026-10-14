@@ -174,7 +174,7 @@ describe('errorNotice（api-session/error → 任务出错）', () => {
 })
 
 describe('triggerAllows（触发开关门控）', () => {
-  const all = { interaction: true, completed: true, error: true }
+  const all = { interaction: true, completed: true, error: true, goalCompletionOnly: false }
   const noticeOf = (kind: 'interaction' | 'completed' | 'error') => ({ kind, sessionId: sessionId('s1') })
 
   it('三类触发分别取对应开关', () => {

@@ -90,7 +90,15 @@ export class NotificationDispatcher {
     }
   }
 
-  /** 信号入口：interaction/error 立即处理；completed 进入防抖。 */
+  /** A newly observed goal invalidates a pending ordinary turn completion. */
+  cancelCompleted(sessionId: string): void {
+    const pending = this.pendingCompleted.get(sessionId)
+    if (pending === undefined) return
+    clearTimeout(pending.timer)
+    this.pendingCompleted.delete(sessionId)
+  }
+
+  /** 信号入口：interaction/error/goal 立即处理；普通 completed 进入防抖。 */
   onSignal(signal: Signal): void {
     const config = this.sources.readConfig()
     if (!this.triggerEnabled(signal.kind, config)) {
@@ -98,6 +106,12 @@ export class NotificationDispatcher {
       return
     }
     if (signal.kind === 'completed') {
+      // A durable goal completion needs no turn/end enrichment. Dispatch it
+      // directly so distinct goals in the same debounce window cannot collapse.
+      if (signal.goalId !== undefined) {
+        this.dispatchIfAllowed(signal)
+        return
+      }
       this.debounceCompleted(signal, config)
       return
     }
@@ -140,7 +154,9 @@ export class NotificationDispatcher {
   private dispatchIfAllowed(signal: Signal): void {
     const config = this.sources.readConfig()
     const now = this.now()
-    const key = `${signal.sessionId}:${signal.kind}`
+    const key = signal.kind === 'completed' && signal.goalId !== undefined
+      ? JSON.stringify([signal.sessionId, signal.kind, signal.goalId])
+      : `${signal.sessionId}:${signal.kind}`
     const last = this.cooldowns.get(key)
     if (last !== undefined && now - last < config.dedup.interactionCooldownMs) {
       this.hooks.logDebug?.(`[dispatcher] cooldown: skip ${key}`)

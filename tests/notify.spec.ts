@@ -103,7 +103,7 @@ describe('NotificationDispatcher', () => {
   it('completed 触发被禁用时不投递', async () => {
     const channel = fakeChannel('system')
     const dispatcher = makeDispatcher({
-      readConfig: () => baseConfig({ triggers: { interaction: true, completed: false, error: true } }),
+      readConfig: () => baseConfig({ triggers: { interaction: true, completed: false, error: true, goalCompletionOnly: false } }),
       channels: [channel],
     })
     dispatcher.onSignal(completedSignal)
@@ -196,5 +196,22 @@ describe('NotificationDispatcher', () => {
     dispatcher.dispose()
     vi.advanceTimersByTime(5_000)
     expect(channel.received).toHaveLength(0)
+  })
+})
+
+describe('durable Goal completion dispatch', () => {
+  it('keeps goals independent on every channel, bypasses turn debounce and preserves the explicit success reason', () => {
+    const telegram = fakeChannel('telegram')
+    const system = fakeChannel('system')
+    const dispatcher = makeDispatcher({ channels: [telegram, system] })
+    dispatcher.noteTurnEnd('root', { kind: 'blocked' })
+    for (const goalId of ['g1', 'g2']) {
+      dispatcher.onSignal({ kind: 'completed', sessionId: 'root', goalId, seq: 1, reason: { kind: 'completed' } })
+    }
+    for (const channel of [telegram, system]) {
+      expect(channel.received).toHaveLength(2)
+      expect(channel.received.every(payload => payload.title === 'Goal 已完成' && !payload.body.includes('阻塞'))).toBe(true)
+    }
+    dispatcher.dispose()
   })
 })

@@ -134,6 +134,12 @@ base 的写法：dev 调试在 `cordis.yml`，正式安装走 profile 的 `cordi
   `ctx.uiSession.sessionStatus` 中的 `pendingInteraction`，仅在 `approval | question | plan-review` 从无到有时通知，
   首次快照只建立基线，未知 kind 忽略。
 - **绿点 = 任务完成**：`agent/status` `running→idle` 且仅根会话 + `turn/end` 原因。
+- **可选 Goal 完成门控**：`triggers.goalCompletionOnly` 默认 `false`。开启后 host 使用
+  `session/event` 的 `goal/change`（operation 和 phase 均为 complete）识别完成；
+  client 使用 `summary.projectionValues.goal.goal` 状态变化。历史事件/首次快照仅建立
+  基线，缺失 projection 不视为无 Goal；子代理按 origin 排除。运行中 clear 不能变成
+  单轮完成提醒；后续无 Goal 的运行恢复原规则。Goal ID 参与去重，Goal 完成直接投递，
+  不进入按会话合并的普通完成防抖。错误通知开关保持独立。
 - **蓝点 = 运行中**（不通知）。
 - **任务出错**：`agent/error`，host 端覆盖。
 

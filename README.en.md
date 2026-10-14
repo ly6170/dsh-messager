@@ -38,6 +38,14 @@ Open **Settings → Messenger** (「通知&信使」), choose the events and cha
 
 Notifications cover interactions, root-session task completion, and task errors. Running status does not trigger a notification. In the desktop app, losing window focus can also trigger completion notices for the open session. Push messages no longer include links. Saved settings take effect immediately.
 
+### Notify only on Goal completion (optional)
+
+Under **Triggers**, enable **Notify when a task completes**, then optionally enable **When a Goal is set, notify only on Goal completion** (`triggers.goalCompletionOnly`). It is **off by default**, preserving existing turn-completion notifications.
+
+When enabled, root sessions with a Goal notify once on genuine Goal completion. Intermediate rounds, pauses, blocking, and round exhaustion do not count as completion. Sessions without a Goal keep turn-completion notifications. Clearing a Goal during a run does not notify; subsequent runs without a Goal resume the normal rule. Subagent completions are excluded, and the error notification switch remains independent.
+
+The option applies to browser, system, and all server channels, including Telegram. Restoring history, reloading the plugin, or enabling the option does not backfill old Goal notifications. Browser visibility/permission rules and channel rate limits still apply. Goal completion does not wait for the ordinary turn-completion debounce window.
+
 ## Troubleshooting
 
 - **Settings section missing or config route returns 404:** Check the active `web` profile, restart DSH, and verify DSH/plugin version compatibility.

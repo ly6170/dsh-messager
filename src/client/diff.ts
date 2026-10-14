@@ -5,6 +5,7 @@
  * - `api-session/error`（宿主转发事件）→ 任务出错
  */
 
+import type {} from '@deepseek-ai/dsh-goal/types'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -14,6 +15,7 @@ export type ClientInteractionKind = 'approval' | 'plan-review' | 'question'
 
 export interface ClientNotice {
   kind: ClientNoticeKind
+  goalId?: string
   sessionId: SessionId
   /** interaction 细分（与 PendingInteractionStatus 一致）。 */
   interaction?: ClientInteractionKind
@@ -34,7 +36,7 @@ export interface ClientNotice {
 export function diffSessionSummaries(
   previous: Readonly<Record<SessionId, SessionSummary>>,
   next: Readonly<Record<SessionId, SessionSummary>>,
-  options: { ignoreMainView?: boolean } = {},
+  options: { ignoreMainView?: boolean; goalCompletionOnly?: boolean } = {},
 ): ClientNotice[] {
   const ignoreMainView = options.ignoreMainView === true
   const notices: ClientNotice[] = []
@@ -43,6 +45,23 @@ export function diffSessionSummaries(
     if (summary === undefined) continue
     const before = previous[id]
     if (before === undefined) continue
+    if (options.goalCompletionOnly) {
+      if (summary.origin === 'subagent') continue
+      // Missing projection data is not evidence of a goal-free session.
+      const goal = summary.projectionValues?.goal
+      const beforeGoal = before.projectionValues?.goal
+      if (goal === undefined || beforeGoal === undefined) continue
+      if (goal !== null) {
+        if (goal.goal.phase === 'complete'
+          && (beforeGoal?.goal.id !== goal.goal.id || beforeGoal.goal.phase !== 'complete')
+          && (ignoreMainView || (summary.retainedBy.mainView ?? 0) === 0)) {
+          notices.push({ kind: 'completed', sessionId: id, title: summary.displayTitle, goalId: goal.goal.id })
+        }
+        continue
+      }
+      // Clear is not completion. The next goal-free run can notify normally.
+      if (beforeGoal !== null) continue
+    }
     if (before.running && !summary.running
       && (ignoreMainView || (summary.retainedBy.mainView ?? 0) === 0)) {
       notices.push({ kind: 'completed', sessionId: id, title: summary.displayTitle })
@@ -120,5 +139,40 @@ export function errorNotice(
     sessionId,
     message,
     ...(title === undefined ? {} : { title }),
+  }
+}
+
+/** Stateful lifecycle guard around the snapshot diff, including hidden/disabled updates. */
+export class ClientCompletionTracker {
+  private readonly completed = new Set<string>()
+  private readonly goalRuns = new Set<SessionId>()
+
+  diff(
+    previous: Readonly<Record<SessionId, SessionSummary>>,
+    next: Readonly<Record<SessionId, SessionSummary>>,
+    options: { ignoreMainView?: boolean; goalCompletionOnly?: boolean } = {},
+  ): ClientNotice[] {
+    // Baseline completed goals even when they were already present at startup.
+    for (const summary of Object.values(previous)) this.baseline(summary)
+    for (const [id, summary] of Object.entries(next) as [SessionId, SessionSummary][]) {
+      if (summary.projectionValues?.goal != null) this.goalRuns.add(id)
+    }
+    const notices = diffSessionSummaries(previous, next, options).filter(notice => {
+      if (notice.goalId !== undefined) {
+        return !this.completed.has(JSON.stringify([notice.sessionId, notice.goalId]))
+      }
+      return !options.goalCompletionOnly || !this.goalRuns.has(notice.sessionId)
+    })
+    for (const summary of Object.values(next)) this.baseline(summary)
+    for (const id of this.goalRuns) {
+      if (!next[id]?.running) this.goalRuns.delete(id)
+    }
+    return notices
+  }
+
+  private baseline(summary: SessionSummary): void {
+    const goal = summary.projectionValues?.goal?.goal
+    if (goal?.phase === 'complete') this.completed.add(JSON.stringify([summary.id, goal.id]))
+    if (summary.running && goal !== undefined) this.goalRuns.add(summary.id)
   }
 }

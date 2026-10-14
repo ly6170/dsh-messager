@@ -4,7 +4,7 @@ import { resolveConfig, Config, type Config as ConfigShape } from '../src/config
 describe('config schema', () => {
   it('resolves full defaults from an empty input', () => {
     const config = resolveConfig({})
-    expect(config.triggers).toEqual({ interaction: true, completed: true, error: true })
+    expect(config.triggers).toEqual({ interaction: true, completed: true, error: true, goalCompletionOnly: false })
     expect(config.system).toEqual({ enabled: true, verbosity: 'normal' })
     expect(config.browser).toEqual({ enabled: true, onlyWhenHidden: true, verbosity: 'normal' })
     expect(config.feishu).toEqual({ enabled: false, timeoutMs: 5000, verbosity: 'normal' })

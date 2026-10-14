@@ -18,6 +18,7 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import { resolveConfig, type Config as ConfigShape, type RuntimeConfig } from './config.js'
 import { interactionSignalOf, errorMessageOf, turnEndReasonOf } from './signals.js'
 import { NotificationDispatcher, type NotifyChannel } from './notify.js'
+import { GoalNotifications } from './goals.js'
 import { createSystemChannel } from './channels/system.js'
 import { createFeishuChannel } from './channels/feishu.js'
 import { createWecomChannel } from './channels/wecom.js'
@@ -257,8 +258,22 @@ export function apply(ctx: Context, config: RuntimeConfig) {
     })
   })
 
-  // 会话事件：会话标题、交互信号（审批/提问）、turn/end 结束原因。
+  const goals = new GoalNotifications()
+
+  // 会话事件：Goal、会话标题、交互信号和 turn/end 结束原因。
   ctx.on('session/event', (session, event) => {
+    if (event.type === 'goal/change') {
+      const goalId = goals.change(session, event)
+      if (!readConfig().triggers.goalCompletionOnly) return
+      dispatcher.cancelCompleted(session.id)
+      if (goalId === undefined || session.header.origin === 'subagent') return
+      ensureSessionTitle(dispatcher, session)
+      dispatcher.onSignal({
+        kind: 'completed', sessionId: session.id, goalId,
+        reason: { kind: 'completed' }, seq: event.seq,
+      })
+      return
+    }
     if (event.type === 'session/title') {
       noTitleSessions.delete(session.id) // 新标题到达：解除无标题负缓存
       dispatcher.noteSessionTitle(session.id, event.data.title)
@@ -283,8 +298,10 @@ export function apply(ctx: Context, config: RuntimeConfig) {
     const isRunning = status === 'running'
     const previous = running.get(agent.id)
     running.set(agent.id, isRunning)
+    if (isRunning && previous !== true) goals.startRun(agent.session)
     if (previous !== true || isRunning) return
     if (agent.session.header.origin === 'subagent') return
+    if (readConfig().triggers.goalCompletionOnly && goals.suppressTurn(agent.session)) return
     ensureSessionTitle(dispatcher, agent.session)
     dispatcher.onSignal({ kind: 'completed', sessionId: agent.id, seq: Date.now() })
   })

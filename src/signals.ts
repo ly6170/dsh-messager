@@ -29,6 +29,8 @@ export type Signal =
   | {
     kind: 'completed'
     sessionId: string
+    /** Durable Goal completion; independent of turn/status boundaries. */
+    goalId?: string
     /** 最近一次 turn/end 的原因（由调度层合并）。 */
     reason?: TurnEndReason
     turn?: number

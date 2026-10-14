@@ -27,6 +27,8 @@ export interface TriggerConfig {
   interaction: boolean
   /** 任务执行完毕时通知。 */
   completed: boolean
+  /** 有 Goal 时仅在 Goal 完成后通知；默认关闭。 */
+  goalCompletionOnly: boolean
   /** 任务出错时通知。 */
   error: boolean
 }
@@ -149,6 +151,7 @@ export const Config = Schema.object({
   triggers: Schema.object({
     interaction: Schema.boolean().default(true).volatile(),
     completed: Schema.boolean().default(true).volatile(),
+    goalCompletionOnly: Schema.boolean().default(false).volatile(),
     error: Schema.boolean().default(true).volatile(),
   }),
   system: Schema.object({

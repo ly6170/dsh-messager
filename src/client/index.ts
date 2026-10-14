@@ -27,7 +27,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { Verbosity } from '../config.js'
 import type { Config } from '../config.js'
 import { ClientConfig, type ClientConfigHandle } from './config.js'
-import { diffPendingInteractions, diffSessionSummaries, errorNotice, triggerAllows, type ClientNotice } from './diff.js'
+import { diffPendingInteractions, ClientCompletionTracker, errorNotice, triggerAllows, type ClientNotice } from './diff.js'
 import { CARD_FIELDS, MessagerCardController } from './card-controller.js'
 import { isDesktopWindow, isWindowBackgrounded } from './desktop.js'
 import { createFetchScope, type ConfigFetcher } from './fetch-scope.js'
@@ -47,7 +47,8 @@ export const inject = ['sessions', 'uiSession', 'remote', 'slots', 'locale']
 const STORAGE_PREFIX = 'dsh-messager:notified:'
 
 /** 浏览器通知投递器。 */
-class BrowserNotifier {
+export class BrowserNotifier {
+  private readonly completions = new ClientCompletionTracker()
   /** `${kind}:${sessionId}` → 上次投递时间戳（内存冷却）。 */
   private readonly cooldowns = new Map<string, number>()
 
@@ -61,7 +62,8 @@ class BrowserNotifier {
   onListChange(previous: SessionListState, next: SessionListState): void {
     // 用户没在看（后台/最小化）时，连「当前打开的会话」完成了也要提醒；
     // 页面可见仍在通知（onlyWhenHidden=false）时保留该过滤，避免打扰正看着的会话。
-    this.onNotices(diffSessionSummaries(previous.byId, next.byId, {
+    this.onNotices(this.completions.diff(previous.byId, next.byId, {
+      goalCompletionOnly: this.config.get().triggers.goalCompletionOnly,
       ignoreMainView: BrowserNotifier.backgrounded(),
     }))
   }
@@ -113,14 +115,16 @@ class BrowserNotifier {
   /** 冷却 + 跨标签页去重。 */
   private allow(notice: ClientNotice, config: Config): boolean {
     const now = Date.now()
-    const key = `${notice.kind}:${notice.sessionId}`
+    const key = notice.goalId === undefined
+      ? `${notice.kind}:${notice.sessionId}`
+      : JSON.stringify([notice.kind, notice.sessionId, notice.goalId])
     const cooldownMs = config.dedup.interactionCooldownMs
     const last = this.cooldowns.get(key)
-    if (last !== undefined && now - last < cooldownMs) return false
+    if (last !== undefined && (notice.goalId !== undefined || now - last < cooldownMs)) return false
     try {
       const storageKey = STORAGE_PREFIX + key
       const raw = window.localStorage.getItem(storageKey)
-      if (raw !== null && now - Number(raw) < cooldownMs) return false
+      if (raw !== null && (notice.goalId !== undefined || now - Number(raw) < cooldownMs)) return false
       window.localStorage.setItem(storageKey, String(now))
     } catch {
       // localStorage 不可用（隐私模式等）时仅靠内存冷却
@@ -135,7 +139,7 @@ class BrowserNotifier {
       ...(verbosity === 'minimal' ? {} : { body: this.bodyOf(notice, config, verbosity) }),
       ...(config.browser.icon === undefined ? {} : { icon: config.browser.icon }),
       // tag 同键通知自动替换，避免同一会话反复堆叠
-      tag: `dsh-messager:${notice.kind}:${notice.sessionId}`,
+      tag: `dsh-messager:${notice.kind}:${notice.sessionId}${notice.goalId === undefined ? '' : `:goal:${notice.goalId}`}`,
     })
     notification.onclick = () => {
       window.focus()
@@ -154,7 +158,7 @@ class BrowserNotifier {
     } else if (notice.kind === 'error') {
       base = '任务出错'
     } else {
-      base = '任务完成'
+      base = notice.goalId === undefined ? '任务完成' : 'Goal 已完成'
     }
     const prefix = config.message.titlePrefix
     return prefix === undefined || prefix === '' ? base : `${prefix} ${base}`

@@ -54,6 +54,7 @@ export function completionLabelOf(reason: TurnEndReason): { title: string; detai
 export function baseTitleOf(signal: Signal): string {
   if (signal.kind === 'interaction') return interactionTitle(signal.interaction)
   if (signal.kind === 'completed') {
+    if (signal.goalId !== undefined) return 'Goal 已完成'
     return signal.reason === undefined ? '任务完成' : completionLabelOf(signal.reason).title
   }
   return KIND_TITLES.error

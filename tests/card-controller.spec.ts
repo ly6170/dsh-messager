@@ -134,7 +134,7 @@ function makeController(scope: ScopeLike, options: { desktop?: boolean } = {}) {
 }
 
 const baseConfig = {
-  triggers: { interaction: true, completed: true, error: true },
+  triggers: { interaction: true, completed: true, error: true, goalCompletionOnly: false },
   system: { enabled: true, verbosity: 'normal' },
   browser: { enabled: true, onlyWhenHidden: true, verbosity: 'normal' },
   feishu: { enabled: false, timeoutMs: 5000, verbosity: 'normal' },
@@ -534,5 +534,35 @@ describe('labelKeyFor / hintKeyFor（桌面版文案变体）', () => {
     expect(hintKeyFor({ ...browserEnabled, hint: 'h' }, false)).toBe('h')
     expect(hintKeyFor({ ...browserEnabled, hint: 'h', desktopHint: 'd' }, true)).toBe('d')
     expect(hintKeyFor({ ...browserEnabled, desktopHint: 'd' }, false)).toBeUndefined()
+  })
+})
+
+
+describe('Goal completion setting', () => {
+  it('saves the optional flag independently and resets it to the default', async () => {
+    const scope = fakeScope({ value: baseConfig })
+    const { face, snapshot } = makeController(scope)
+    expect(snapshot().fields['triggers.goalCompletionOnly']?.text).toBe('false')
+    face.edit('triggers', 'goalCompletionOnly', 'true')
+    face.save()
+    await vi.waitFor(() => expect(snapshot().saving).toBe(false))
+    expect(scope.state().rawUser).toEqual({ triggers: { goalCompletionOnly: true } })
+    expect(snapshot().fields['triggers.completed']?.text).toBe('true')
+    face.reset('triggers', 'goalCompletionOnly')
+    face.save()
+    await vi.waitFor(() => expect(snapshot().saving).toBe(false))
+    expect(snapshot().fields['triggers.goalCompletionOnly']?.text).toBe('false')
+  })
+
+  it('hides the option and skips its draft when completion notifications are disabled', async () => {
+    const scope = fakeScope({ value: baseConfig })
+    const { face, snapshot } = makeController(scope)
+    face.edit('triggers', 'goalCompletionOnly', 'true')
+    face.edit('triggers', 'completed', 'false')
+    const field = CARD_FIELDS.find(spec => spec.field === 'goalCompletionOnly')!
+    expect(isFieldGated(field, snapshot().fields)).toBe(true)
+    face.save()
+    await vi.waitFor(() => expect(snapshot().saving).toBe(false))
+    expect(scope.state().rawUser).toEqual({ triggers: { completed: false } })
   })
 })

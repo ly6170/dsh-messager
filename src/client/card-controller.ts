@@ -491,6 +491,11 @@ export const CARD_FIELDS: readonly CardFieldSpec[] = [
   // 触发时机
   { group: 'triggers', field: 'interaction', kind: 'toggle', label: 'field.triggers.interaction' },
   { group: 'triggers', field: 'completed', kind: 'toggle', label: 'field.triggers.completed' },
+  {
+    group: 'triggers', field: 'goalCompletionOnly', kind: 'toggle',
+    label: 'field.triggers.goalCompletionOnly', hint: 'hint.triggers.goalCompletionOnly',
+    hiddenUnless: { group: 'triggers', field: 'completed' },
+  },
   { group: 'triggers', field: 'error', kind: 'toggle', label: 'field.triggers.error' },
   // 系统通知：enabled 为门控开关，关闭时隐藏子配置
   // ⚠️ 不随桌面版隐藏：桌面版的原生通知由窗口渲染端投递，多数情况下够用（故默认关闭，

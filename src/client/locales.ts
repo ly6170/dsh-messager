@@ -31,6 +31,8 @@ export const zh = {
 
   'field.triggers.interaction': '需要交互时通知',
   'field.triggers.completed': '任务完成时通知',
+  'field.triggers.goalCompletionOnly': '设置了 Goal 时，仅在 Goal 完成后通知',
+  'hint.triggers.goalCompletionOnly': '默认关闭。开启后，有 Goal 的根会话仅在目标完成时提醒一次；换轮、暂停、受阻或轮数耗尽不提醒。无 Goal 的会话保持单轮完成通知，错误提醒仍由独立开关控制。',
   'field.triggers.error': '任务出错时通知',
   'field.system.enabled': '启用系统通知',
   'field.system.icon': '图标路径',
@@ -104,6 +106,8 @@ export const en = {
 
   'field.triggers.interaction': 'Notify when interaction is needed',
   'field.triggers.completed': 'Notify when a task completes',
+  'field.triggers.goalCompletionOnly': 'When a Goal is set, notify only on Goal completion',
+  'hint.triggers.goalCompletionOnly': 'Off by default. Root sessions with a Goal notify once when the Goal completes, not between rounds, on pause, blocking, or round exhaustion. Sessions without a Goal keep turn-completion notifications. Error notifications remain independently controlled.',
   'field.triggers.error': 'Notify when a task errors',
   'field.system.enabled': 'Enable system notifications',
   'field.system.icon': 'Icon path',
